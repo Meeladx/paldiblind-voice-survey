@@ -1,0 +1,917 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="format-detection" content="telephone=no">
+<title>استبيان الصوت - بالدي بلايند</title>
+<style>
+  :root { --bg:#000; --fg:#fff; --btn:#ffd400; --btn-fg:#000; --btn2:#1c1c1c; --line:#fff; --focus:#4fc3f7; --warn:#ffb4a8; }
+  html { font: -apple-system-body; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font-family: system-ui, -apple-system, "Segoe UI", Tahoma, Arial, sans-serif;
+         font-size: 1.25rem; line-height: 1.55; }
+  main { max-width: 40rem; margin: 0 auto; padding: 16px 16px 48px; }
+  h1 { font-size: 1.8rem; line-height: 1.35; margin: 8px 0 16px; }
+  h1:focus { outline: 3px solid var(--focus); outline-offset: 4px; }
+  p { margin: 0 0 16px; }
+  button, .btn { display: block; box-sizing: border-box; width: 100%; min-height: 72px; margin: 0 0 16px;
+         padding: 16px; font: inherit; font-size: 1.5rem; font-weight: 700; line-height: 1.3;
+         border: 3px solid var(--line); border-radius: 14px; background: var(--btn2); color: var(--fg);
+         text-align: center; text-decoration: none; cursor: pointer; touch-action: manipulation; }
+  .primary { background: var(--btn); color: var(--btn-fg); border-color: var(--btn); }
+  .huge { min-height: 42vh; font-size: 2.1rem; }
+  [aria-disabled="true"] { opacity: .45; }
+  button:focus-visible, .btn:focus-visible { outline: 4px solid var(--focus); outline-offset: 3px; }
+  .say { font-size: 2rem; font-weight: 700; line-height: 1.35; border: 2px dashed var(--line);
+         border-radius: 12px; padding: 12px 14px; }
+  .rec { font-size: 1.6rem; font-weight: 700; color: #ff5a5a; text-align: center; }
+  .warn { color: var(--warn); }
+  .pid { font-size: 2.3rem; font-weight: 700; letter-spacing: .12em; text-align: center; }
+  .status { min-height: 1.6em; font-weight: 700; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <section id="s-welcome" hidden>
+    <h1 tabindex="-1" data-t="welcome_title"></h1>
+    <p data-t="welcome_body"></p>
+    <p data-t="welcome_mic"></p>
+    <button type="button" class="primary" id="b-consent" data-t="consent_btn"></button>
+    <button type="button" id="b-lang"></button>
+  </section>
+
+  <section id="s-storage" hidden>
+    <h1 tabindex="-1" id="st-title" class="warn"></h1>
+    <button type="button" class="primary" id="b-reload" data-t="retry"></button>
+    <button type="button" id="b-partial-s" data-t="partial_btn" hidden></button>
+  </section>
+
+  <section id="s-mic" hidden>
+    <h1 tabindex="-1" id="mic-title"></h1>
+    <button type="button" class="primary" id="b-retry" data-t="retry"></button>
+  </section>
+
+  <section id="s-notice" hidden>
+    <h1 tabindex="-1" data-t="notice_persist"></h1>
+    <button type="button" class="primary" id="b-notice" data-t="continue"></button>
+  </section>
+
+  <section id="s-resume" hidden>
+    <h1 tabindex="-1" data-t="resume_title"></h1>
+    <button type="button" class="primary" id="b-continue" data-t="continue"></button>
+  </section>
+
+  <section id="s-vision" hidden>
+    <h1 tabindex="-1" data-t="vision_title"></h1>
+    <button type="button" class="primary" data-vision="total" data-t="vision_total"></button>
+    <button type="button" class="primary" data-vision="light_perception" data-t="vision_light"></button>
+    <button type="button" class="primary" data-vision="low_vision" data-t="vision_low"></button>
+  </section>
+
+  <section id="s-prompt" hidden>
+    <h1 tabindex="-1" id="p-title"></h1>
+    <p id="p-say" class="say"></p>
+    <p id="rec" class="rec" aria-hidden="true" hidden></p>
+    <button type="button" class="primary huge" id="b-start" data-t="start_btn"></button>
+    <button type="button" id="b-hear" data-t="hear_btn"></button>
+    <button type="button" id="b-partial-p" data-t="partial_btn"></button>
+  </section>
+
+  <section id="s-review" hidden>
+    <h1 tabindex="-1" id="r-title"></h1>
+    <button type="button" class="primary" id="b-next" data-t="next"></button>
+    <button type="button" id="b-again" data-t="again"></button>
+    <button type="button" id="b-listen" data-t="listen"></button>
+    <button type="button" id="b-partial-r" data-t="partial_btn"></button>
+  </section>
+
+  <section id="s-break" hidden>
+    <h1 tabindex="-1" data-t="break_title"></h1>
+    <button type="button" class="primary" id="b-yes" data-t="yes"></button>
+    <button type="button" id="b-no" data-t="no"></button>
+  </section>
+
+  <section id="s-finish" hidden>
+    <h1 tabindex="-1" id="f-title"></h1>
+    <p id="f-body"></p>
+    <p data-t="pid_label"></p>
+    <p class="pid" id="pid" lang="en" dir="ltr"></p>
+    <button type="button" class="primary" id="b-send" aria-disabled="true"></button>
+    <a class="btn" id="dl" hidden data-t="download"></a>
+    <button type="button" id="b-back" data-t="back" hidden></button>
+  </section>
+
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+</main>
+
+<script>
+'use strict';
+/* PaldiBlind Voice Survey, web version. Same prompts, ids and manifest fields as the Android
+   survey (app/stt_recorder). Everything stays on the phone until the participant presses Send.
+   The page never speaks on its own: the screen reader reads the focused, lang-tagged heading.
+   Page speech happens only on "Hear it again", and only with an on-device voice. */
+
+const APP_VERSION = '1.1.0-web';
+const PRE_TONE_MS = 400;         // after cancelling speech, before the start tone
+const POST_TONE_GAP_MS = 150;    // start tone fully ended before the mic opens
+const QUIET_PEAK = 0.02;         // below this the clip is treated as near-empty
+const CLIP_LEVEL = 0.999, CLIP_COUNT = 20;
+const PER_LANGUAGE = 17;
+const RESAMPLE_METHOD = 'windowed-sinc FIR low-pass (63 taps, Blackman, 7.2 kHz cutoff) + linear interpolation to 16 kHz; passthrough when the input is 16 kHz';
+const SHUFFLE_METHOD = 'mulberry32(seed + 1 for ar, seed + 2 for en), Fisher-Yates in Dart List.shuffle order; names shuffled, hard cases appended in fixed order';
+
+// Copied verbatim from app/stt_recorder/lib/models/destination_info.dart.
+const DESTS = [
+  { id: 'azeez_shaheen_literature', en: 'Azeez Shaheen - literature', ar: 'كلية الآداب - عزيز شاهين' },
+  { id: 'naseeb_shaheen_graduate_studies', en: 'Naseeb Shaheen - Graduate Studies', ar: 'كلية الدراسات العليا - نسيب شاهين' },
+  { id: 'naseeb_shaheen_auditorium', en: 'Naseeb Shaheen Auditorium', ar: 'مدرج نسيب شاهين' },
+  { id: 'shouky_shaheen_lecture_halls', en: 'Shouky Shaheen Lecture Halls', ar: 'قاعات محاضرات شوقي شاهين' },
+  { id: 'munib_masri_it', en: 'Munib Masri - IT', ar: 'كلية تكنولوجيا المعلومات - منيب المصري' },
+  { id: 'najjad_zeenni_it_center', en: 'Najjad Zeenni - IT Center', ar: 'مركز تكنولوجيا المعلومات - نجاد الزعني' },
+  { id: 'omar_aggad_engineering', en: 'Omar Aggad - Engineering', ar: 'كلية الهندسة - عمر العقاد' },
+  { id: 'engineering_workshops', en: 'Engineering Workshops', ar: 'ورش الهندسة' },
+  { id: 'riad_al_sadik_law', en: 'Riad Al-Sadik - Faculty of Law', ar: 'كلية الحقوق - رياض الصادق' },
+  { id: 'faculty_of_law_annex', en: 'Faculty of Law Annex', ar: 'ملحق كلية الحقوق' },
+  { id: 'yusuf_alghanim_library', en: 'Yusuf Alghanim Library', ar: 'مكتبة يوسف الغانم' },
+  { id: 'main_cafeteria', en: 'Main Cafeteria', ar: 'الكافيتيريا الرئيسية' },
+];
+// Copied verbatim from app/stt_recorder/lib/recorder/prompt_plan.dart.
+const OOS = {
+  en: ['what time does the library close', 'call my brother please', 'play some music',
+       'the weather is nice today', 'how much does this cost', 'can you turn up the volume'],
+  ar: ['كم الساعة الآن', 'اتصل بأخي من فضلك', 'شغل بعض الموسيقى',
+       'الجو جميل اليوم', 'كم سعر هذا', 'ارفع الصوت من فضلك'],
+};
+// Copied from app/stt_recorder/lib/recorder/survey_instructions.dart.
+const PREFIX = {
+  ar: { silence: 'بعد الصفارة ابقَ صامتًا حتى الصفارة الثانية.', mumble: 'بعد الصفارة تمتم بلا كلمات حتى الصفارة الثانية.',
+        partial_name: 'بعد الصفارة قل فقط بداية الاسم، ثم توقف:', out_of_set: 'بعد الصفارة قل هذه الجملة:',
+        embedded_in_sentence: 'بعد الصفارة قل الجملة كاملة:', clean: 'بعد الصفارة قل:' },
+  en: { silence: 'After the tone, stay silent until the second tone.',
+        mumble: 'After the tone, mumble with no real words until the second tone.',
+        partial_name: 'After the tone, say only the start of the name, then stop:',
+        out_of_set: 'After the tone, say this sentence:', embedded_in_sentence: 'After the tone, say the whole sentence:',
+        clean: 'After the tone, say:' },
+};
+
+// UI strings: [English, Arabic].
+const S = {
+  welcome_title: ['PaldiBlind Voice Survey', 'استبيان الصوت - بالدي بلايند'],
+  welcome_body: ['You will record yourself saying 12 place names and a few short phrases. It takes about 10 minutes: Arabic first, then English if you want. The recordings go only to the PaldiBlind research team. You can stop at any time. Please sit in a quiet room and turn on Do Not Disturb. Each recording starts after a tone and ends with a second tone; you do not need to touch the screen while it records.',
+                 'ستسجّل صوتك وأنت تقول أسماء ١٢ مكانًا وبعض العبارات القصيرة. يستغرق ذلك نحو عشر دقائق: العربية أولًا، ثم الإنجليزية إن أردت. تذهب التسجيلات إلى فريق بحث بالدي بلايند فقط. يمكنك التوقف في أي وقت. اجلس في غرفة هادئة وفعّل وضع عدم الإزعاج. يبدأ كل تسجيل بعد صفارة وينتهي بصفارة ثانية، ولا تحتاج إلى لمس الشاشة أثناء التسجيل.'],
+  welcome_mic: ['Nothing is recorded before you press the button below. The browser will then ask to use the microphone: choose Allow.',
+                'لا يُسجَّل أي شيء قبل الضغط على الزر أدناه. بعدها سيطلب المتصفح استخدام الميكروفون: اختر سماح.'],
+  consent_btn: ['I agree, start', 'أوافق وأبدأ'],
+  storage_unusable: ['This browser cannot save the recordings on this phone, so the survey cannot start. Open the link in normal Safari (not Private Browsing), then press Try again.',
+                     'لا يستطيع هذا المتصفح حفظ التسجيلات على هذا الهاتف، لذلك لا يمكن البدء. افتح الرابط في سفاري العادي، وليس في التصفح الخاص، ثم اضغط حاول مرة أخرى.'],
+  storage_read_fail: ['Your saved recordings could not be read. Nothing was deleted. Press Try again.',
+                      'تعذّرت قراءة تسجيلاتك المحفوظة. لم يُحذف شيء. اضغط حاول مرة أخرى.'],
+  mic_title: ['Microphone not available. Allow the microphone for this page, then press Try again. On iPhone: in Safari press the aA button, then Website Settings, then Microphone, then Allow.',
+              'الميكروفون غير متاح. اسمح لهذه الصفحة باستخدام الميكروفون ثم اضغط حاول مرة أخرى. على الآيفون: في سفاري اضغط زر aA، ثم إعدادات موقع الويب، ثم الميكروفون، ثم سماح.'],
+  unsupported: ['This browser cannot record here. Please open the link in Safari on iPhone or Chrome on Android.',
+                'لا يستطيع هذا المتصفح التسجيل هنا. افتح الرابط في سفاري على الآيفون أو كروم على أندرويد.'],
+  notice_persist: ['Note: this browser might clear the saved progress if the page is left for a long time. It is best to finish the survey in one go. You can send what you have recorded at any time with the button "Send what I have so far".',
+                   'تنبيه: قد يمسح هذا المتصفح التقدّم المحفوظ إذا تُركت الصفحة مدة طويلة. الأفضل أن تُكمل الاستبيان دفعة واحدة. ويمكنك في أي وقت إرسال ما سجّلته بزر "أرسل ما سجّلته حتى الآن".'],
+  retry: ['Try again', 'حاول مرة أخرى'],
+  resume_title: ['Welcome back. Your recordings are saved on this phone. Press Continue to go on from where you stopped.',
+                 'مرحبًا بعودتك. تسجيلاتك محفوظة على هذا الهاتف. اضغط متابعة لتكمل من حيث توقفت.'],
+  continue: ['Continue', 'متابعة'],
+  vision_title: ['How much can you see?', 'ما درجة إبصارك؟'],
+  vision_total: ['Totally blind', 'كفيف تمامًا'],
+  vision_light: ['I see light only', 'أرى الضوء فقط'],
+  vision_low: ['Low vision', 'ضعف بصر'],
+  of: ['of', 'من'],
+  start_btn: ['Start recording', 'ابدأ التسجيل'],
+  hear_btn: ['Hear it again', 'اسمع مرة أخرى'],
+  partial_btn: ['Send what I have so far', 'أرسل ما سجّلته حتى الآن'],
+  recording: ['Recording…', 'جارٍ التسجيل…'],
+  no_voice: ['No voice for this language is installed on the phone. The screen reader reads the text on screen.',
+             'لا يوجد صوت مثبّت على الهاتف لهذه اللغة. قارئ الشاشة يقرأ النص المكتوب.'],
+  done_hint: ['Done. Press Next, or Record again.', 'تم. اضغط التالي، أو أعد التسجيل.'],
+  quiet_hint: ['The recording is very quiet or empty. You can record again, or press Next.',
+               'التسجيل هادئ جدًا أو فارغ. يمكنك إعادة التسجيل أو الضغط على التالي.'],
+  clip_hint: ['The sound is too loud and distorted. Hold the phone a little further away. You can record again, or press Next.',
+              'الصوت مرتفع جدًا ومشوّه. أبعد الهاتف قليلًا. يمكنك إعادة التسجيل أو الضغط على التالي.'],
+  save_fail_hint: ['This recording could not be saved on the phone. Press Next to try again, or send what you have so far.',
+                   'تعذّر حفظ هذا التسجيل على الهاتف. اضغط التالي للمحاولة مرة أخرى، أو أرسل ما سجّلته حتى الآن.'],
+  capture_fail: ['The recording was interrupted and was not kept.', 'انقطع التسجيل ولم يُحفظ.'],
+  next: ['Next', 'التالي'],
+  again: ['Record again', 'أعد التسجيل'],
+  listen: ['Listen', 'استمع'],
+  break_title: ['Arabic part done. Continue with English?', 'انتهى الجزء العربي. هل تتابع بالإنجليزية؟'],
+  yes: ['Yes, continue in English', 'نعم، أتابع بالإنجليزية'],
+  no: ['No, finish', 'لا، إنهاء'],
+  finish_title: ['Thank you!', 'شكرًا لك!'],
+  finish_body: ['Press the button below and choose WhatsApp or another app to send the recordings to the team. You can send again later.',
+                'اضغط الزر أدناه واختر واتساب أو تطبيقًا آخر لإرسال التسجيلات إلى الفريق. يمكنك الإرسال مرة أخرى لاحقًا.'],
+  partial_title: ['Send what you have so far', 'إرسال ما سجّلته حتى الآن'],
+  partial_body: ['Press the send button and choose WhatsApp or another app. Then you can go back and continue recording.',
+                 'اضغط زر الإرسال واختر واتساب أو تطبيقًا آخر. بعدها يمكنك العودة ومتابعة التسجيل.'],
+  pid_label: ['Your participant number:', 'رقم المشارك:'],
+  send: ['Thank you! Send the recordings to the team', 'شكرًا! أرسل التسجيلات للفريق'],
+  send_now: ['Send the recordings to the team', 'أرسل التسجيلات للفريق'],
+  back: ['Back to recording', 'العودة إلى التسجيل'],
+  download: ['Download the file', 'تنزيل الملف'],
+  preparing: ['Preparing the file, please wait…', 'جارٍ التحضير، انتظر قليلًا…'],
+  ready: ['The file is ready. Press the send button.', 'الملف جاهز. اضغط زر الإرسال.'],
+  nothing_to_send: ['There are no recordings yet.', 'لا توجد تسجيلات بعد.'],
+  sent: ['Done. Thank you.', 'تم. شكرًا لك.'],
+  share_cancel: ['Not sent. Press the button again to send.', 'لم يُرسَل. اضغط الزر مرة أخرى للإرسال.'],
+  share_fail: ['Sharing is not available. Use Download the file, then send it from the Files app.',
+               'المشاركة غير متاحة. استخدم زر تنزيل الملف ثم أرسله من تطبيق الملفات.'],
+  zip_fail: ['Could not prepare the file. Press the send button to try again.', 'تعذّر تجهيز الملف. اضغط زر الإرسال للمحاولة مرة أخرى.'],
+};
+
+// ---------- state ----------
+let ui = 'ar';
+let st = null;          // persisted: {pid, seed, ui, consent, consentAt, vision, continueEnglish, persisted, noticeShown, createdAt}
+let plan = null;        // {ar: [...17], en: [...17]}
+let clips = [];         // saved clip metadata (no audio): {clip_id, seq, base_prompt_id, lang, meta}
+let cur = null;         // {prompt, index}
+let pending = null;     // capture waiting for Next / Record again (kept in memory if saving fails)
+let busy = false;       // set synchronously by every handler that awaits
+let gen = 0;            // navigation generation; stale focus callbacks check it
+let storageBlocked = false;
+const Z = { gen: 0, state: 'idle', ready: null, partial: false };   // send-screen zip
+const A = { ctx: null, stream: null, src: null, node: null, sink: null, mode: null, trackRate: null,
+            onCap: null, capN: 0, abort: null, op: null, speechUnlocked: false, player: null };
+
+const $ = (id) => document.getElementById(id);
+const t = (k) => (ui === 'ar' ? S[k][1] : S[k][0]);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function setLang(el, lang) { el.lang = lang; el.dir = lang === 'ar' ? 'rtl' : 'ltr'; }
+function setText(el, text, lang) { el.textContent = text; setLang(el, lang || ui); }
+
+// ---------- prompt plan (mirrors PromptPlan._buildLanguageBatch, includeBackgroundSpeech: false) ----------
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let x = Math.imul(a ^ (a >>> 15), 1 | a);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function firstHalf(name) {
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length < 2) return name;
+  return words.slice(0, Math.floor(words.length / 2)).join(' ');
+}
+function buildBlock(lang, seed) {
+  const rng = mulberry32(seed + (lang === 'ar' ? 1 : 2));
+  const d = DESTS.slice();
+  for (let n = d.length; n > 1;) { const pos = Math.floor(rng() * n); n--; const tmp = d[n]; d[n] = d[pos]; d[pos] = tmp; }
+  const nm = (x) => (lang === 'ar' ? x.ar : x.en);
+  const out = d.map((x) => ({ promptId: `${lang}_clean_${x.id}`, lang, condition: 'clean', utterance: nm(x), expected: x.id, target: null }));
+  const partial = d[0], embedded = d[2];
+  out.push({ promptId: `${lang}_silence`, lang, condition: 'silence', utterance: '', expected: 'silence', target: null });
+  out.push({ promptId: `${lang}_partial_${partial.id}`, lang, condition: 'partial_name', utterance: firstHalf(nm(partial)), expected: 'out-of-set', target: partial.id });
+  out.push({ promptId: `${lang}_mumble`, lang, condition: 'mumble', utterance: '', expected: 'out-of-set', target: null });
+  out.push({ promptId: `${lang}_oos`, lang, condition: 'out_of_set', utterance: OOS[lang][Math.abs(seed) % OOS[lang].length], expected: 'out-of-set', target: null });
+  const carrier = lang === 'ar' ? `خذني إلى ${nm(embedded)}` : `can you take me to the ${nm(embedded)}`;
+  out.push({ promptId: `${lang}_embed_${embedded.id}`, lang, condition: 'embedded_in_sentence', utterance: carrier, expected: embedded.id, target: embedded.id });
+  return out;
+}
+function windowMs(condition) {
+  if (condition === 'silence' || condition === 'mumble') return 3000;
+  if (condition === 'out_of_set' || condition === 'embedded_in_sentence') return 6000;
+  return 4000;
+}
+function slug(p) {
+  const base = p.target && p.condition !== 'clean' ? `${p.condition}_${p.target}` : (p.condition === 'clean' ? p.expected : p.condition);
+  const ascii = base.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  return ascii.length <= 32 ? ascii : ascii.substring(0, 32);
+}
+
+// ---------- IndexedDB ----------
+let dbPromise = null;
+function db() {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const r = indexedDB.open('paldiblind_voice_survey', 1);
+      r.onupgradeneeded = () => { r.result.createObjectStore('kv'); r.result.createObjectStore('clips', { keyPath: 'clip_id' }); };
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+      r.onblocked = () => reject(new Error('blocked'));
+    });
+    dbPromise.catch(() => { dbPromise = null; });
+  }
+  return dbPromise;
+}
+async function tx(store, mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const x = d.transaction(store, mode);
+    let out;
+    const req = fn(x.objectStore(store));
+    if (req) req.onsuccess = () => { out = req.result; };
+    x.oncomplete = () => resolve(out);
+    x.onerror = x.onabort = () => reject(x.error || new Error('transaction failed'));
+  });
+}
+const kvGet = (k) => tx('kv', 'readonly', (s) => s.get(k));
+const kvSet = (k, v) => tx('kv', 'readwrite', (s) => s.put(v, k));
+const clipPut = (c) => tx('clips', 'readwrite', (s) => s.put(c));
+const clipAll = () => tx('clips', 'readonly', (s) => s.getAll());
+async function saveState() { try { await kvSet('state', st); return true; } catch (e) { return false; } }
+const stripWav = (c) => ({ clip_id: c.clip_id, seq: c.seq, base_prompt_id: c.base_prompt_id, lang: c.lang, meta: c.meta });
+
+// ---------- speech (only on "Hear it again"; on-device voices only) ----------
+let voices = [];
+function loadVoices() { try { voices = window.speechSynthesis ? speechSynthesis.getVoices() || [] : []; } catch (e) { voices = []; } }
+if (window.speechSynthesis) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+function pickVoice(lang) {
+  return voices.find((v) => v.localService === true && (v.lang || '').toLowerCase().replace('_', '-').startsWith(lang)) || null;
+}
+function cancelSpeech() { try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) { /* ignore */ } }
+// parts: [[text, 'ar'|'en'], ...]. Returns how many parts were spoken; a language with no on-device voice is skipped.
+function speakNow(parts) {
+  if (!window.speechSynthesis) return 0;
+  loadVoices();
+  let n = 0;
+  for (const [text, lang] of parts) {
+    const v = text ? pickVoice(lang) : null;
+    if (!v) continue;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = v.lang;
+    try { u.voice = v; } catch (e) { /* ignore */ }
+    u.rate = 0.95;
+    try { speechSynthesis.speak(u); n++; } catch (e) { /* ignore */ }
+  }
+  return n;
+}
+async function waitSpeechIdle(maxMs) {
+  const end = Date.now() + maxMs;
+  while (window.speechSynthesis && (speechSynthesis.speaking || speechSynthesis.pending) && Date.now() < end) await sleep(50);
+}
+
+// ---------- audio ----------
+const WORKLET = `
+class PbCapture extends AudioWorkletProcessor {
+  constructor() {
+    super(); this.n = 0;
+    this.port.onmessage = (e) => { if (e.data.cmd === 'start') this.n = e.data.n; else this.n = 0; };
+  }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (this.n > 0 && ch) {
+      const take = Math.min(ch.length, this.n);
+      this.port.postMessage(ch.slice(0, take));
+      this.n -= take;
+      if (this.n <= 0) this.port.postMessage('done');
+    }
+    return true;
+  }
+}
+registerProcessor('pb-capture', PbCapture);
+`;
+// Any interruption (backgrounding, track ended/muted, audio context interrupted) cancels the whole Start operation.
+function interrupt() {
+  if (A.op) A.op.cancelled = true;
+  if (A.abort) A.abort();
+}
+// Must run synchronously inside a tap: iOS only unlocks audio and speech from a user gesture.
+function gestureUnlock() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!A.ctx && AC) {
+    A.ctx = new AC();
+    A.ctx.onstatechange = () => { if (A.ctx.state !== 'running' && A.op && A.op.armed) interrupt(); };
+  }
+  if (A.ctx && A.ctx.state !== 'running') A.ctx.resume().catch(() => {});
+  if (window.speechSynthesis && !A.speechUnlocked) {
+    // Inaudible: only unlocks speechSynthesis on iOS for a later "Hear it again".
+    try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); A.speechUnlocked = true; } catch (e) { /* ignore */ }
+  }
+}
+function micAlive() { return !!(A.stream && A.stream.getAudioTracks().some((tr) => tr.readyState === 'live' && !tr.muted)); }
+async function ensureNode() {
+  if (A.node) return;
+  const ctx = A.ctx;
+  A.sink = ctx.createGain(); A.sink.gain.value = 0; A.sink.connect(ctx.destination);
+  if (ctx.audioWorklet && window.AudioWorkletNode) {
+    try {
+      const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+      await ctx.audioWorklet.addModule(url);
+      A.node = new AudioWorkletNode(ctx, 'pb-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
+      A.node.port.onmessage = (e) => { if (A.onCap) A.onCap(e.data); };
+      A.mode = 'audioworklet';
+    } catch (e) { A.node = null; }
+  }
+  if (!A.node) {
+    const sp = ctx.createScriptProcessor(4096, 1, 1);
+    sp.onaudioprocess = (e) => {
+      if (A.capN <= 0) return;
+      const ch = e.inputBuffer.getChannelData(0);
+      const take = Math.min(ch.length, A.capN);
+      A.capN -= take;
+      if (A.onCap) A.onCap(ch.slice(0, take));
+      if (A.capN <= 0 && A.onCap) A.onCap('done');
+    };
+    A.node = sp; A.mode = 'scriptprocessor';
+  }
+  A.node.connect(A.sink);
+}
+async function ensureMic() {
+  if (!A.ctx) throw new Error('no-audiocontext');
+  if (micAlive()) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no-getusermedia');
+  if (A.stream) { for (const tr of A.stream.getTracks()) { try { tr.stop(); } catch (e) { /* ignore */ } } }
+  A.stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+  });
+  await ensureNode();
+  if (A.src) { try { A.src.disconnect(); } catch (e) { /* ignore */ } }
+  A.src = A.ctx.createMediaStreamSource(A.stream);
+  A.src.connect(A.node);
+  const tr = A.stream.getAudioTracks()[0];
+  if (tr) { tr.addEventListener('ended', interrupt); tr.addEventListener('mute', interrupt); }
+  const set = tr && tr.getSettings ? tr.getSettings() : {};
+  A.trackRate = set.sampleRate || null;
+}
+// Capture exactly `ms` of input, counted in samples by the capture node. ok is false unless every sample arrived.
+function capture(ms) {
+  return new Promise((resolve) => {
+    const sr = A.ctx.sampleRate, n = Math.round((ms * sr) / 1000);
+    const chunks = [];
+    let got = 0, fin = false, timer = 0;
+    const finish = (reason) => {
+      if (fin) return;
+      fin = true; clearTimeout(timer);
+      A.onCap = null; A.abort = null; A.capN = 0;
+      if (A.mode === 'audioworklet') A.node.port.postMessage({ cmd: 'stop' });
+      const ok = reason === 'done' && got >= n;
+      const x = new Float32Array(ok ? n : 0);
+      if (ok) { let o = 0; for (const c of chunks) { const take = Math.min(c.length, n - o); x.set(c.subarray(0, take), o); o += take; if (o >= n) break; } }
+      resolve({ x, sr, ok, reason });
+    };
+    A.onCap = (d) => { if (d === 'done') finish('done'); else { chunks.push(d); got += d.length; } };
+    A.abort = () => finish('interrupted');
+    timer = setTimeout(() => finish('watchdog'), ms + 2500);
+    if (A.mode === 'audioworklet') A.node.port.postMessage({ cmd: 'start', n }); else A.capN = n;
+  });
+}
+function tone(freq, ms) {
+  return new Promise((resolve) => {
+    const ctx = A.ctx, d = ms / 1000, t0 = ctx.currentTime + 0.02;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(0.35, t0 + 0.01);
+    g.gain.setValueAtTime(0.35, t0 + d - 0.02);
+    g.gain.linearRampToValueAtTime(0, t0 + d);
+    o.connect(g); g.connect(ctx.destination);
+    let done = false;
+    const end = () => { if (done) return; done = true; try { o.disconnect(); g.disconnect(); } catch (e) { /* ignore */ } resolve(); };
+    o.onended = end;
+    o.start(t0); o.stop(t0 + d);
+    setTimeout(end, ms + 400);
+  });
+}
+function toI16(v) { v = Math.max(-1, Math.min(1, v)); return v < 0 ? Math.round(v * 32768) : Math.round(v * 32767); }
+function resample16k(x, sr) {
+  const out = new Int16Array(Math.floor((x.length * 16000) / sr));
+  if (sr === 16000) { for (let i = 0; i < out.length; i++) out[i] = toI16(x[i]); return out; }
+  const taps = 63, half = 31, fc = 7200 / sr, h = new Float32Array(taps);
+  let sum = 0;
+  for (let i = 0; i < taps; i++) {
+    const m = i - half;
+    const s = m === 0 ? 2 * fc : Math.sin(2 * Math.PI * fc * m) / (Math.PI * m);
+    const w = 0.42 - 0.5 * Math.cos((2 * Math.PI * i) / (taps - 1)) + 0.08 * Math.cos((4 * Math.PI * i) / (taps - 1));
+    h[i] = s * w; sum += h[i];
+  }
+  for (let i = 0; i < taps; i++) h[i] /= sum;
+  const N = x.length;
+  const lp = (k) => { let acc = 0; for (let j = 0; j < taps; j++) { const idx = k + j - half; if (idx >= 0 && idx < N) acc += x[idx] * h[j]; } return acc; };
+  const ratio = sr / 16000;
+  for (let i = 0; i < out.length; i++) {
+    const pos = i * ratio, i0 = Math.floor(pos), fr = pos - i0;
+    const a = lp(i0), b = i0 + 1 < N ? lp(i0 + 1) : a;
+    out[i] = toI16(a + (b - a) * fr);
+  }
+  return out;
+}
+function wavBytes(pcm) {
+  const buf = new ArrayBuffer(44 + pcm.length * 2), dv = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); dv.setUint32(4, 36 + pcm.length * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, 16000, true); dv.setUint32(28, 32000, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  str(36, 'data'); dv.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) dv.setInt16(44 + i * 2, pcm[i], true);
+  return new Uint8Array(buf);
+}
+function stopPlayback() { if (A.player) { try { A.player.stop(); } catch (e) { /* ignore */ } A.player = null; } }
+
+// ---------- zip (STORE only, no compression) ----------
+const CRC_TABLE = (() => {
+  const tbl = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; tbl[n] = c >>> 0; }
+  return tbl;
+})();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipStore(files, date) {
+  const enc = new TextEncoder();
+  const time = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
+  const day = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  const parts = [], central = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name), crc = crc32(f.data), size = f.data.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+    lh.setUint16(10, time, true); lh.setUint16(12, day, true); lh.setUint32(14, crc, true);
+    lh.setUint32(18, size, true); lh.setUint32(22, size, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+    parts.push(lh.buffer, name, f.data);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+    ch.setUint16(10, 0, true); ch.setUint16(12, time, true); ch.setUint16(14, day, true); ch.setUint32(16, crc, true);
+    ch.setUint32(20, size, true); ch.setUint32(24, size, true); ch.setUint16(28, name.length, true);
+    ch.setUint32(42, offset, true);
+    central.push(ch.buffer, name);
+    offset += 30 + name.length + size;
+  }
+  const cdSize = central.reduce((n, p) => n + p.byteLength, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, end.buffer], { type: 'application/zip' });
+}
+function stamp(d) {
+  const two = (v) => String(v).padStart(2, '0');
+  return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}_${two(d.getHours())}${two(d.getMinutes())}`;
+}
+
+// ---------- screens ----------
+function applyTexts() {
+  setLang(document.documentElement, ui);
+  document.title = t('welcome_title');
+  for (const el of document.querySelectorAll('[data-t]')) setText(el, t(el.dataset.t));
+  setText($('b-lang'), ui === 'ar' ? 'English' : 'العربية', ui === 'ar' ? 'en' : 'ar');
+  setText($('rec'), t('recording'));
+}
+function status(msg) {
+  const s = $('status');
+  s.textContent = '';
+  setLang(s, ui);
+  if (msg) setTimeout(() => { s.textContent = msg; }, 60);
+}
+// No page speech here: the screen reader reads the focused heading, which carries the full instruction.
+function show(id) {
+  const g = ++gen;
+  cancelSpeech();
+  for (const s of document.querySelectorAll('main > section')) s.hidden = s.id !== id;
+  window.scrollTo(0, 0);
+  const h = $(id).querySelector('h1');
+  requestAnimationFrame(() => { if (g === gen) h.focus(); });
+}
+const keptIds = () => new Set(clips.map((c) => c.base_prompt_id));
+function nextIndex(lang) { const k = keptIds(); const i = plan[lang].findIndex((p) => !k.has(p.promptId)); return i < 0 ? PER_LANGUAGE : i; }
+function needsMic() { return route(true) === 'prompt'; }
+
+// Pure resume logic, same as SurveyResumeState.resolve.
+function route(dryRun) {
+  let stage, lang = 'ar', idx = 0;
+  if (!st.consent) stage = 'welcome';
+  else if (!st.vision) stage = 'vision';
+  else if ((idx = nextIndex('ar')) < PER_LANGUAGE) stage = 'prompt';
+  else if (st.continueEnglish == null) stage = 'break';
+  else if (st.continueEnglish === false) stage = 'finish';
+  else if ((idx = nextIndex('en')) < PER_LANGUAGE) { stage = 'prompt'; lang = 'en'; }
+  else stage = 'finish';
+  if (dryRun) return stage;
+  if (stage === 'welcome') show('s-welcome');
+  else if (stage === 'vision') show('s-vision');
+  else if (stage === 'prompt') showPrompt(lang, idx);
+  else if (stage === 'break') show('s-break');
+  else showSend(false);
+  return stage;
+}
+function showPrompt(lang, idx, errKey) {
+  const p = plan[lang][idx];
+  cur = { prompt: p, index: idx };
+  pending = null;
+  const lead = errKey ? `${t(errKey)} ` : '';
+  setText($('p-title'), `${lead}${idx + 1} ${t('of')} ${PER_LANGUAGE}. ${PREFIX[ui][p.condition]}`);
+  $('p-title').className = errKey ? 'warn' : '';
+  const say = $('p-say');
+  setText(say, p.utterance, p.lang);
+  say.hidden = !p.utterance;
+  $('rec').hidden = true;
+  show('s-prompt');
+}
+function showReview(forceKey) {
+  const r = pending;
+  const key = forceKey || (r.quiet ? 'quiet_hint' : r.clipped ? 'clip_hint' : 'done_hint');
+  setText($('r-title'), t(key));
+  $('r-title').className = key === 'done_hint' ? '' : 'warn';
+  show('s-review');
+}
+function setSendState(state) {
+  Z.state = state;
+  $('b-send').setAttribute('aria-disabled', state === 'ready' ? 'false' : 'true');
+  status(t({ preparing: 'preparing', ready: 'ready', empty: 'nothing_to_send', failed: 'zip_fail' }[state]));
+}
+// Send screen. partial = "send what I have so far" (any time, includes an unsaved pending clip).
+function showSend(partial) {
+  Z.partial = partial; Z.ready = null;
+  const g = ++Z.gen;
+  setText($('f-title'), t(partial ? 'partial_title' : 'finish_title'));
+  setText($('f-body'), t(partial ? 'partial_body' : 'finish_body'));
+  setText($('b-send'), t(partial ? 'send_now' : 'send'));
+  $('pid').textContent = `W ${st.pid.slice(1).split('').join(' ')}`;
+  $('dl').hidden = true;
+  $('b-back').hidden = !partial || storageBlocked;
+  show('s-finish');
+  setSendState('preparing');
+  prepareZip(partial ? pending : null).then((z) => {
+    if (g !== Z.gen) return;
+    Z.ready = z;
+    setSendState(z ? 'ready' : 'empty');
+  }).catch(() => { if (g === Z.gen) setSendState('failed'); });
+}
+function showMic(err) {
+  const unsupported = err && /no-(getusermedia|audiocontext)/.test(err.message || '');
+  setText($('mic-title'), t(unsupported ? 'unsupported' : 'mic_title'));
+  show('s-mic');
+}
+function showStorage(key) {
+  storageBlocked = true;
+  setText($('st-title'), t(key));
+  $('b-partial-s').hidden = !(st && clips.length);
+  show('s-storage');
+}
+
+// ---------- actions (each locks synchronously before its first await) ----------
+async function onConsent() {
+  if (busy) return;
+  busy = true;
+  gestureUnlock();
+  try {
+    st.consent = true; st.consentAt = new Date().toISOString(); st.ui = ui;
+    if (!(await saveState())) { showStorage('storage_unusable'); return; }
+    try { await ensureMic(); } catch (e) { showMic(e); return; }
+    let persisted = false;
+    try { persisted = !!(navigator.storage && navigator.storage.persist && (await navigator.storage.persist())); } catch (e) { persisted = false; }
+    st.persisted = persisted;
+    if (!persisted && !st.noticeShown) { st.noticeShown = true; await saveState(); show('s-notice'); return; }
+    await saveState();
+    route();
+  } finally { busy = false; }
+}
+async function onContinue() {
+  if (busy) return;
+  busy = true;
+  gestureUnlock();
+  try {
+    if (needsMic()) { try { await ensureMic(); } catch (e) { showMic(e); return; } }
+    route();
+  } finally { busy = false; }
+}
+async function onVision(value) {
+  if (busy) return;
+  busy = true;
+  try { st.vision = value; await saveState(); route(); } finally { busy = false; }
+}
+async function onLanguageBreak(yes) {
+  if (busy) return;
+  busy = true;
+  gestureUnlock();
+  try {
+    st.continueEnglish = yes;
+    await saveState();
+    if (yes && needsMic()) { try { await ensureMic(); } catch (e) { showMic(e); return; } }
+    route();
+  } finally { busy = false; }
+}
+async function onLangToggle() {
+  if (busy) return;
+  busy = true;
+  try { ui = ui === 'ar' ? 'en' : 'ar'; st.ui = ui; await saveState(); applyTexts(); show('s-welcome'); } finally { busy = false; }
+}
+function onHear() {
+  if (busy || !cur) return;
+  cancelSpeech();
+  const p = cur.prompt;
+  if (!speakNow([[PREFIX[ui][p.condition], ui], [p.utterance, p.lang]])) status(t('no_voice'));
+}
+async function onStart() {
+  if (busy || !cur) return;
+  busy = true;
+  ++gen;                                   // stale focus callbacks can no longer fire
+  const op = { cancelled: false, armed: false };
+  A.op = op;                               // pagehide / visibilitychange / track / context cancel this
+  gestureUnlock();
+  const p = cur.prompt, idx = cur.index;
+  const fail = () => { $('rec').hidden = true; showPrompt(p.lang, idx, 'capture_fail'); };
+  try {
+    cancelSpeech(); stopPlayback();
+    try { await ensureMic(); } catch (e) { if (op.cancelled) fail(); else showMic(e); return; }
+    if (op.cancelled) return fail();
+    if (A.ctx.state !== 'running') await A.ctx.resume().catch(() => {});
+    if (op.cancelled || A.ctx.state !== 'running' || !micAlive()) return fail();
+    op.armed = true;
+    await sleep(PRE_TONE_MS);
+    if (op.cancelled) return fail();
+    await waitSpeechIdle(2000);
+    if (op.cancelled) return fail();
+    $('rec').hidden = false;               // visual only: an announcement would be recorded
+    await tone(880, 150);
+    if (op.cancelled) return fail();
+    await sleep(POST_TONE_GAP_MS);
+    if (op.cancelled) return fail();
+    const ms = windowMs(p.condition);
+    const r = await capture(ms);
+    if (!r.ok || op.cancelled || !micAlive()) return fail();
+    await tone(440, 200);
+    $('rec').hidden = true;
+    let peak = 0, clippedCount = 0;
+    for (let i = 0; i < r.x.length; i++) { const a = Math.abs(r.x[i]); if (a > peak) peak = a; if (a >= CLIP_LEVEL) clippedCount++; }
+    const noWords = p.condition === 'silence' || p.condition === 'mumble';
+    pending = { prompt: p, index: idx, pcm: resample16k(r.x, r.sr), sr: r.sr, ms, peak, clippedCount,
+                quiet: !noWords && peak < QUIET_PEAK, clipped: !noWords && clippedCount >= CLIP_COUNT };
+    showReview();
+  } catch (e) {
+    fail();
+  } finally {
+    if (A.op === op) A.op = null;
+    busy = false;
+  }
+}
+function makeRecord(r, seq) {
+  const p = r.prompt;
+  const clipId = `web_${st.pid}_${p.lang}_${String(seq).padStart(3, '0')}_${slug(p)}`;
+  const meta = {
+    clip_id: clipId, file: `${clipId}.wav`, language: p.lang, expected: p.expected,
+    prompt_id: `${st.pid}_${p.promptId}`, condition: p.condition, prompt_text: p.utterance, vocab_risk: false,
+    ...(p.target ? { target_destination: p.target } : {}),
+    duration_ms: Math.round(r.pcm.length / 16), peak: Number(Math.min(1, r.peak).toFixed(4)), clipped_samples: r.clippedCount,
+    recorded_at: new Date().toISOString(), conditions_source: 'self-guided web survey; room and mic distance not recorded',
+    operator: 'web', speaker: st.pid, participant_group: 'blind', consent_recorded: true,
+    vision_level: st.vision, vision_onset: null,
+    self_guided: true, recording_mode: 'fixed_window', window_ms: r.ms, platform: 'web', user_agent: navigator.userAgent,
+    group: 'blind', actual_sample_rate: r.sr, track_sample_rate: A.trackRate, capture_node: A.mode,
+    resample_method: RESAMPLE_METHOD, levels_measured_at: 'input rate, before resampling',
+    level_warning: r.quiet ? 'near_empty' : r.clipped ? 'clipped' : null,
+    prompt_seed: st.seed, prompt_index: r.index, ui_language: ui,
+  };
+  return { clip_id: clipId, seq, base_prompt_id: p.promptId, lang: p.lang, meta, wav: wavBytes(r.pcm).buffer };
+}
+async function onNext() {
+  if (busy || !pending) return;
+  busy = true;
+  try {
+    const rec = makeRecord(pending, clips.length);
+    try { await clipPut(rec); } catch (e) { showReview('save_fail_hint'); return; }   // pending stays in memory
+    clips.push(stripWav(rec));
+    pending = null;
+    route();
+  } finally { busy = false; }
+}
+function onAgain() {
+  if (busy || !pending) return;
+  const r = pending;
+  stopPlayback();
+  showPrompt(r.prompt.lang, r.index);
+}
+function onListen() {
+  if (busy || !pending) return;
+  stopPlayback();
+  const pcm = pending.pcm;
+  const buf = A.ctx.createBuffer(1, Math.max(1, pcm.length), 16000);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = A.ctx.createBufferSource();
+  src.buffer = buf; src.connect(A.ctx.destination); src.start();
+  A.player = src;
+}
+function onPartial() {
+  if (busy) return;
+  showSend(true);
+}
+function onBack() {
+  if (busy) return;
+  if (pending) showReview(); else route();
+}
+// Recoverable clips from storage plus an unsaved pending clip. Resolves null when there is nothing to send.
+async function prepareZip(extra) {
+  let all = [];
+  try { all = await clipAll(); } catch (e) { if (!extra) throw e; all = []; }   // unreadable storage: send the pending clip alone
+  all.sort((a, b) => a.seq - b.seq);
+  if (extra) all.push(makeRecord(extra, all.length));
+  if (!all.length) return null;
+  const now = new Date();
+  const enc = new TextEncoder();
+  const manifest = {
+    corpus_id: `paldiblind-survey-web-${st.pid}`,
+    recorder: { tool: 'PaldiBlind Voice Survey (web)', format: '16 kHz mono PCM16 WAV, written by the page itself', written_at: now.toISOString() },
+    survey: {
+      participant_id: st.pid, self_guided: true, recording_mode: 'fixed_window', platform: 'web', user_agent: navigator.userAgent,
+      group: 'blind', vision_level: st.vision, consent_at: st.consentAt || null, continue_english: st.continueEnglish,
+      storage_persisted: st.persisted === true, partial_export: Z.partial, includes_unsaved_clip: !!extra,
+      seed: st.seed, shuffle: SHUFFLE_METHOD,
+      order: { ar: plan.ar.map((p) => p.promptId), en: plan.en.map((p) => p.promptId) },
+      window_ms: { clean: 4000, partial_name: 4000, out_of_set: 6000, embedded_in_sentence: 6000, silence: 3000, mumble: 3000 },
+      actual_sample_rate: A.ctx ? A.ctx.sampleRate : null, track_sample_rate: A.trackRate, resample_method: RESAMPLE_METHOD,
+    },
+    clips: all.map((c) => c.meta),
+  };
+  const info = { app: 'PaldiBlind Voice Survey (web)', app_version: APP_VERSION, operator: 'web', participant: st.pid,
+                 exported_at: now.toISOString(), device_model: 'web', user_agent: navigator.userAgent, clip_count: all.length };
+  const files = [{ name: 'manifest.json', data: enc.encode(JSON.stringify(manifest, null, 2)) }];
+  for (const c of all) files.push({ name: c.meta.file, data: new Uint8Array(c.wav) });
+  files.push({ name: 'export_info.json', data: enc.encode(JSON.stringify(info, null, 2)) });
+  const blob = zipStore(files, now);
+  const name = `paldiblind_survey_${st.pid}_${stamp(now)}.zip`;
+  let file = null;
+  try { file = new File([blob], name, { type: 'application/zip' }); } catch (e) { file = null; }
+  return { blob, name, file };
+}
+function offerDownload(z) {
+  const a = $('dl');
+  if (a.href) URL.revokeObjectURL(a.href);
+  a.href = URL.createObjectURL(z.blob);
+  a.download = z.name;
+  a.hidden = false;
+  status(t('share_fail'));
+  requestAnimationFrame(() => a.focus());
+}
+// No await before share(): the zip is already built, so the tap's user activation is still valid.
+function onSend() {
+  if (Z.state !== 'ready') {
+    if (Z.state === 'failed') showSend(Z.partial);
+    else setSendState(Z.state);          // re-announce "preparing" / "nothing to send"
+    return;
+  }
+  const z = Z.ready;
+  let ok = false;
+  try { ok = !!(z.file && navigator.share && navigator.canShare && navigator.canShare({ files: [z.file] })); } catch (e) { ok = false; }
+  if (!ok) { offerDownload(z); return; }
+  navigator.share({ files: [z.file], title: `PaldiBlind voice survey ${st.pid}` })
+    .then(() => status(t('sent')))
+    .catch((e) => { if (e && e.name === 'AbortError') status(t('share_cancel')); else offerDownload(z); });
+}
+
+// ---------- wiring ----------
+document.addEventListener('click', (e) => {
+  if (e.target.closest && e.target.closest('button, a')) { cancelSpeech(); if (!busy) stopPlayback(); }
+}, true);
+document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelSpeech(); interrupt(); } });
+window.addEventListener('pagehide', () => { cancelSpeech(); interrupt(); });
+$('b-consent').addEventListener('click', onConsent);
+$('b-lang').addEventListener('click', onLangToggle);
+$('b-retry').addEventListener('click', onContinue);
+$('b-continue').addEventListener('click', onContinue);
+$('b-notice').addEventListener('click', onContinue);
+$('b-reload').addEventListener('click', () => location.reload());
+for (const b of document.querySelectorAll('[data-vision]')) b.addEventListener('click', () => onVision(b.dataset.vision));
+$('b-start').addEventListener('click', onStart);
+$('b-hear').addEventListener('click', onHear);
+$('b-next').addEventListener('click', onNext);
+$('b-again').addEventListener('click', onAgain);
+$('b-listen').addEventListener('click', onListen);
+for (const id of ['b-partial-p', 'b-partial-r', 'b-partial-s']) $(id).addEventListener('click', onPartial);
+$('b-back').addEventListener('click', onBack);
+$('b-yes').addEventListener('click', () => onLanguageBreak(true));
+$('b-no').addEventListener('click', () => onLanguageBreak(false));
+$('b-send').addEventListener('click', onSend);
+
+function newState() {
+  const r = new Uint32Array(1);
+  window.crypto.getRandomValues(r);
+  const digits = String(r[0] % 1000000).padStart(6, '0');
+  return { pid: `W${digits}`, seed: parseInt(digits, 10), ui: 'ar', consent: false, vision: null,
+           continueEnglish: null, createdAt: new Date().toISOString() };
+}
+// Saved clips but no state record: rebuild the identity from the clips, never invent a new one.
+function stateFromClips(list) {
+  const m = list[0].meta;
+  return { pid: m.speaker, seed: m.prompt_seed, ui: m.ui_language || 'ar', consent: true, vision: m.vision_level,
+           continueEnglish: list.some((c) => c.lang === 'en') ? true : null, createdAt: m.recorded_at, recovered: true };
+}
+async function boot() {
+  applyTexts();
+  if (!window.indexedDB) { showStorage('storage_unusable'); return; }
+  let saved, all;
+  try {
+    saved = await kvGet('state');
+    all = await clipAll();
+  } catch (e) {
+    // Open failed -> unusable; open worked but a read failed -> data may exist. Either way nothing is written.
+    showStorage(dbPromise ? 'storage_read_fail' : 'storage_unusable');
+    return;
+  }
+  clips = all.map(stripWav);
+  st = saved || (clips.length ? stateFromClips(clips) : newState());
+  ui = st.ui || 'ar';
+  plan = { ar: buildBlock('ar', st.seed), en: buildBlock('en', st.seed) };
+  applyTexts();
+  // Probe that writes work before anything can be recorded.
+  if (!(await saveState())) { showStorage('storage_unusable'); return; }
+  if (!st.consent) show('s-welcome'); else show('s-resume');
+}
+boot();
+</script>
+</body>
+</html>
