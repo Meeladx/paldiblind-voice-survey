@@ -225,6 +225,7 @@ const S = {
                    'تعذّر حفظ هذا التسجيل على الهاتف. اضغط التالي للمحاولة مرة أخرى، أو أرسل ما سجّلته حتى الآن.'],
   capture_fail: ['The recording was interrupted and was not kept.', 'انقطع التسجيل ولم يُحفظ.'],
   too_short: ['Too short, record again.', 'التسجيل قصير جدًا، سجّل مرة أخرى.'],
+  cancelled: ['Recording cancelled. Press the button to start again.', 'أُلغي التسجيل. اضغط الزر للبدء من جديد.'],
   next: ['Next', 'التالي'],
   again: ['Record again', 'أعد التسجيل'],
   listen: ['Listen', 'استمع'],
@@ -395,11 +396,16 @@ class PbCapture extends AudioWorkletProcessor {
 }
 registerProcessor('pb-capture', PbCapture);
 `;
-// Any interruption (backgrounding, track ended/muted, audio context interrupted) cancels the whole Start operation.
-function interrupt() {
-  if (A.op) A.op.cancelled = true;
+// Any interruption (backgrounding, track ended/muted, audio context interrupted, a tap during startup)
+// cancels the whole operation and frees the mic synchronously: the page may be frozen before any await resumes.
+function interrupt(reason) {
+  const op = A.op;
+  if (op) { op.cancelled = true; op.reason = op.reason || (typeof reason === 'string' ? reason : 'interrupted'); }
   if (A.abort) A.abort();
+  if (op) releaseMic();
 }
+const onTrackLost = () => interrupt('track');
+function stopTracks(stream) { for (const tr of stream.getTracks()) { try { tr.stop(); } catch (e) { /* ignore */ } } }
 function setSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) { /* ignore */ } }
 // Must run synchronously inside a tap: iOS only unlocks audio and speech from a user gesture.
 function gestureUnlock() {
@@ -407,7 +413,7 @@ function gestureUnlock() {
   if (!A.ctx && AC) {
     setSession('playback');
     A.ctx = new AC();
-    A.ctx.onstatechange = () => { if (A.ctx.state !== 'running' && A.op && A.op.armed) interrupt(); };
+    A.ctx.onstatechange = () => { if (A.ctx.state !== 'running' && A.op && A.op.armed) interrupt('context'); };
   }
   if (A.ctx && A.ctx.state !== 'running') A.ctx.resume().catch(() => {});
   if (window.speechSynthesis && !A.speechUnlocked) {
@@ -447,16 +453,15 @@ async function ensureNode() {
 function releaseMic() {
   if (A.src) { try { A.src.disconnect(); } catch (e) { /* ignore */ } A.src = null; }
   if (A.stream) {
-    for (const tr of A.stream.getTracks()) {
-      tr.removeEventListener('ended', interrupt); tr.removeEventListener('mute', interrupt);
-      try { tr.stop(); } catch (e) { /* ignore */ }
-    }
+    for (const tr of A.stream.getTracks()) { tr.removeEventListener('ended', onTrackLost); tr.removeEventListener('mute', onTrackLost); }
+    stopTracks(A.stream);
     A.stream = null;
   }
   setSession('playback');
 }
-// Opened inside each Start tap (Safari may ask for permission again).
-async function openMic() {
+// Opened inside each Start tap (Safari may ask for permission again). A stream that arrives after `op`
+// was cancelled is stopped immediately and never used.
+async function openMic(op) {
   if (!A.ctx) throw new Error('no-audiocontext');
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no-getusermedia');
   releaseMic();
@@ -467,12 +472,14 @@ async function openMic() {
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
     });
   } catch (e) { setSession('playback'); throw e; }
+  if (op.cancelled) { stopTracks(stream); setSession('playback'); throw new Error('cancelled'); }
   A.stream = stream;
   await ensureNode();
+  if (op.cancelled) { releaseMic(); throw new Error('cancelled'); }
   A.src = A.ctx.createMediaStreamSource(stream);
   A.src.connect(A.node);
   const tr = stream.getAudioTracks()[0];
-  if (tr) { tr.addEventListener('ended', interrupt); tr.addEventListener('mute', interrupt); }
+  if (tr) { tr.addEventListener('ended', onTrackLost); tr.addEventListener('mute', onTrackLost); }
   const set = tr && tr.getSettings ? tr.getSettings() : {};
   A.trackRate = set.sampleRate || null;
 }
@@ -622,15 +629,19 @@ function applyTexts() {
   setText($('b-lang'), ui === 'ar' ? 'English' : 'العربية', ui === 'ar' ? 'en' : 'ar');
   setText($('rec'), t('recording'));
 }
+// Never touches the live region while the mic may be open (A.op), and drops updates from a screen already left.
 function status(msg) {
-  const s = $('status');
+  if (A.op) return;
+  const g = gen, s = $('status');
   s.textContent = '';
   setLang(s, ui);
-  if (msg) setTimeout(() => { s.textContent = msg; }, 60);
+  if (msg) setTimeout(() => { if (g === gen && !A.op) s.textContent = msg; }, 60);
 }
 // No page speech here: the screen reader reads the focused heading, which carries the full instruction.
 function show(id) {
   const g = ++gen;
+  if (id !== 's-finish') Z.gen++;          // leaving Send: a zip still being prepared can no longer update anything
+  $('status').textContent = '';            // no stale message carried to the next screen
   cancelSpeech();
   for (const s of document.querySelectorAll('main > section')) s.hidden = s.id !== id;
   window.scrollTo(0, 0);
@@ -645,6 +656,7 @@ function nextIndex(lang) { const k = keptIds(); const i = plan[lang].findIndex((
 function route() {
   let stage, lang = 'ar', idx = 0;
   if (!st.consent) stage = 'welcome';
+  else if (st.persisted === false && !st.noticeShown) stage = 'notice';   // on every path, incl. mic-denied recovery
   else if (!st.vision) stage = 'vision';
   else if (!st.practiceDone && !clips.length) stage = 'practice';
   else if ((idx = nextIndex('ar')) < PER_LANGUAGE) stage = 'prompt';
@@ -653,6 +665,7 @@ function route() {
   else if ((idx = nextIndex('en')) < PER_LANGUAGE) { stage = 'prompt'; lang = 'en'; }
   else stage = 'finish';
   if (stage === 'welcome') show('s-welcome');
+  else if (stage === 'notice') show('s-notice');
   else if (stage === 'vision') show('s-vision');
   else if (stage === 'practice') showPractice();
   else if (stage === 'prompt') showPrompt(lang, idx);
@@ -734,6 +747,13 @@ function showStorage(key) {
 }
 
 // ---------- actions (each locks synchronously before its first await) ----------
+// Asks once whether storage is persistent; route() then shows the disclosure until it is acknowledged.
+async function checkPersist() {
+  let persisted = false;
+  try { persisted = !!(navigator.storage && navigator.storage.persist && (await navigator.storage.persist())); } catch (e) { persisted = false; }
+  st.persisted = persisted;
+  await saveState();
+}
 async function onConsent() {
   if (busy) return;
   busy = true;
@@ -741,21 +761,28 @@ async function onConsent() {
   try {
     st.consent = true; st.consentAt = new Date().toISOString(); st.ui = ui;
     if (!(await saveState())) { showStorage('storage_unusable'); return; }
+    await checkPersist();                  // before the mic, so a mic denial cannot skip it
     // Ask for the microphone now (a tap), then close it again until the first Start.
-    try { await openMic(); } catch (e) { releaseMic(); showMic(e); return; }
+    const op = { kind: 'consent', cancelled: false };
+    A.op = op;
+    let micError = null;
+    try { await openMic(op); } catch (e) { micError = e; }
     releaseMic();
-    let persisted = false;
-    try { persisted = !!(navigator.storage && navigator.storage.persist && (await navigator.storage.persist())); } catch (e) { persisted = false; }
-    st.persisted = persisted;
-    if (!persisted && !st.noticeShown) { st.noticeShown = true; await saveState(); show('s-notice'); return; }
-    await saveState();
+    if (A.op === op) A.op = null;
+    if (micError && !op.cancelled) { showMic(micError); return; }
     route();
   } finally { busy = false; }
 }
-function onContinue() {
+async function onContinue() {
   if (busy) return;
+  busy = true;
   gestureUnlock();
-  route();
+  try { if (st.persisted === undefined) await checkPersist(); route(); } finally { busy = false; }
+}
+async function onNotice() {
+  if (busy) return;
+  busy = true;
+  try { st.noticeShown = true; await saveState(); route(); } finally { busy = false; }
 }
 async function onVision(value) {
   if (busy) return;
@@ -780,24 +807,28 @@ function onHear() {
     : [[PREFIX[ui][p.condition], ui], [p.utterance, p.lang], [p.utterance ? t('stop_hint') : '', ui]];
   if (!speakNow(parts)) status(t('no_voice'));
 }
-// First tap: start. Second tap on the same button (label unchanged): stop.
+// First tap: start. A tap during startup (mic opening, countdown, start tone): cancel.
+// A tap while recording: stop. The button's label is the same in every state.
 async function onStart() {
   if (A.rec) { A.rec.stop(); return; }
+  if (A.op && A.op.kind === 'start') { interrupt('tap'); return; }
   if (busy || !cur) return;
   busy = true;
-  ++gen;                                   // stale focus/playback callbacks can no longer fire
-  const op = { cancelled: false, armed: false };
-  A.op = op;                               // pagehide / visibilitychange / track / context cancel this
+  ++gen;                                   // stale focus/playback/status callbacks can no longer fire
+  const op = { kind: 'start', cancelled: false, armed: false, reason: null };
+  A.op = op;                               // pagehide / visibilitychange / track / context / tap cancel this
   gestureUnlock();
   const c = cur, p = c.prompt;
   const back = (key) => {
+    if (A.op === op) A.op = null;
     resetRecordVisual();
     releaseMic();
+    if (key === 'capture_fail' && op.reason === 'tap') key = 'cancelled';
     if (c.practice) showPractice(key); else showPrompt(p.lang, c.index, key);
   };
   try {
     cancelSpeech(); stopPlayback();
-    try { await openMic(); } catch (e) { releaseMic(); if (op.cancelled) back('capture_fail'); else showMic(e); return; }
+    try { await openMic(op); } catch (e) { releaseMic(); if (op.cancelled) back('capture_fail'); else { A.op = null; showMic(e); } return; }
     if (op.cancelled) return back('capture_fail');
     if (A.ctx.state !== 'running') await A.ctx.resume().catch(() => {});
     if (op.cancelled || A.ctx.state !== 'running' || !micAlive()) return back('capture_fail');
@@ -815,6 +846,7 @@ async function onStart() {
     const r = await capture(MAX_MS);
     const alive = micAlive();
     op.armed = false;
+    if (r.ok && !op.cancelled && alive && A.op === op) A.op = null;   // done: later taps hit the busy guard
     releaseMic();                          // back to normal speaker playback before the stop tone
     resetRecordVisual();
     if (!r.ok || op.cancelled || !alive) return back('capture_fail');
@@ -949,13 +981,13 @@ function onSend() {
 document.addEventListener('click', (e) => {
   if (e.target.closest && e.target.closest('button, a')) { cancelSpeech(); if (!busy) stopPlayback(); }
 }, true);
-document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelSpeech(); interrupt(); } });
-window.addEventListener('pagehide', () => { cancelSpeech(); interrupt(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelSpeech(); interrupt('hidden'); } });
+window.addEventListener('pagehide', () => { cancelSpeech(); interrupt('hidden'); });
 $('b-consent').addEventListener('click', onConsent);
 $('b-lang').addEventListener('click', onLangToggle);
 $('b-retry').addEventListener('click', onContinue);
 $('b-continue').addEventListener('click', onContinue);
-$('b-notice').addEventListener('click', onContinue);
+$('b-notice').addEventListener('click', onNotice);
 $('b-reload').addEventListener('click', () => location.reload());
 for (const b of document.querySelectorAll('[data-vision]')) b.addEventListener('click', () => onVision(b.dataset.vision));
 $('b-start').addEventListener('click', onStart);
