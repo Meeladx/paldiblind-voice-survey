@@ -418,16 +418,25 @@ function interrupt(reason) {
   if (A.abort) A.abort();
   if (op) releaseMic();
 }
-const onTrackLost = (e) => { dbg(`track ${e && e.type}`); interrupt('track'); };
+// Only a track that has ended is lost. iOS can fire a transient 'mute' while it reconfigures audio; a real
+// loss of audio is caught by the stall check instead.
+const onTrackLost = (e) => { dbg(`track ${e && e.type}`); if (e && e.type === 'ended') interrupt('track'); };
 function stopTracks(stream) { for (const tr of stream.getTracks()) { try { tr.stop(); } catch (e) { /* ignore */ } } }
-function setSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) { /* ignore */ } }
+// Deliberately a no-op: switching navigator.audioSession.type on iOS can interrupt the running AudioContext
+// mid-recording. Releasing the mic tracks after each take is what returns iOS to normal speaker volume.
+function setSession(type) { dbg(`session ${type} (not applied)`); }
 // Must run synchronously inside a tap: iOS only unlocks audio and speech from a user gesture.
 function gestureUnlock() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!A.ctx && AC) {
     setSession('playback');
     A.ctx = new AC();
-    A.ctx.onstatechange = () => { dbg(`ctx ${A.ctx.state} armed=${!!(A.op && A.op.armed)}`); if (A.ctx.state !== 'running' && A.op && A.op.armed) interrupt('context'); };
+    // A brief iOS interruption is resumed rather than treated as a failure; if audio really stops, the
+    // stall check (STALL_MS) ends the take as interrupted.
+    A.ctx.onstatechange = () => {
+      dbg(`ctx ${A.ctx.state} armed=${!!(A.op && A.op.armed)}`);
+      if (A.ctx.state !== 'running' && A.ctx.state !== 'closed' && A.op && A.op.armed) A.ctx.resume().catch(() => {});
+    };
   }
   if (A.ctx && A.ctx.state !== 'running') A.ctx.resume().catch(() => {});
   if (window.speechSynthesis && !A.speechUnlocked) {
@@ -435,7 +444,7 @@ function gestureUnlock() {
     try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); A.speechUnlocked = true; } catch (e) { /* ignore */ }
   }
 }
-function micAlive() { return !!(A.stream && A.stream.getAudioTracks().some((tr) => tr.readyState === 'live' && !tr.muted)); }
+function micAlive() { return !!(A.stream && A.stream.getAudioTracks().some((tr) => tr.readyState === 'live')); }
 async function ensureNode() {
   if (A.node) return;
   const ctx = A.ctx;
@@ -509,7 +518,8 @@ function capture(maxMs) {
       A.onCap = null; A.abort = null; A.rec = null; A.capN = 0;
       if (A.mode === 'audioworklet' && reason !== 'tap') A.node.port.postMessage({ cmd: 'stop', id });
       const expected = Math.min(n, (((stopAt || Date.now()) - t0) / 1000) * sr - 0.3 * sr);
-      const ok = (reason === 'tap' || reason === 'max') && got >= expected;
+      // 70 %: iOS can start delivering audio a few hundred ms late; a real gap is caught by the stall check.
+      const ok = (reason === 'tap' || reason === 'max') && got >= 0.7 * expected;
       dbg(`capture end ${reason} got=${got} expected=${Math.round(expected)} sr=${sr} mode=${A.mode} ok=${ok}`);
       const len = ok ? Math.min(got, n) : 0, x = new Float32Array(len);
       let o = 0;
