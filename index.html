@@ -21,7 +21,8 @@
          border: 3px solid var(--line); border-radius: 14px; background: var(--btn2); color: var(--fg);
          text-align: center; text-decoration: none; cursor: pointer; touch-action: manipulation; }
   .primary { background: var(--btn); color: var(--btn-fg); border-color: var(--btn); }
-  .huge { min-height: 42vh; font-size: 2.1rem; }
+  .huge { min-height: 42vh; font-size: 2rem; }
+  .huge.recording { background: #c62828; color: #fff; border-color: #ff8a80; }
   [aria-disabled="true"] { opacity: .45; }
   button:focus-visible, .btn:focus-visible { outline: 4px solid var(--focus); outline-offset: 3px; }
   .say { font-size: 2rem; font-weight: 700; line-height: 1.35; border: 2px dashed var(--line);
@@ -74,10 +75,19 @@
   <section id="s-prompt" hidden>
     <h1 tabindex="-1" id="p-title"></h1>
     <p id="p-say" class="say"></p>
+    <p id="p-stop" data-t="stop_hint"></p>
     <p id="rec" class="rec" aria-hidden="true" hidden></p>
+    <!-- One constant accessible name for both states: a changing label would be re-announced into the open mic. -->
     <button type="button" class="primary huge" id="b-start" data-t="start_btn"></button>
     <button type="button" id="b-hear" data-t="hear_btn"></button>
     <button type="button" id="b-partial-p" data-t="partial_btn"></button>
+  </section>
+
+  <section id="s-practice" hidden>
+    <h1 tabindex="-1" data-t="practice_review"></h1>
+    <button type="button" class="primary" id="b-pr-go" data-t="practice_go"></button>
+    <button type="button" id="b-pr-again" data-t="practice_again"></button>
+    <button type="button" id="b-pr-listen" data-t="listen"></button>
   </section>
 
   <section id="s-review" hidden>
@@ -111,12 +121,18 @@
 'use strict';
 /* PaldiBlind Voice Survey, web version. Same prompts, ids and manifest fields as the Android
    survey (app/stt_recorder). Everything stays on the phone until the participant presses Send.
+   Tap-to-stop recording: the same big button starts and stops; its accessible name never changes.
    The page never speaks on its own: the screen reader reads the focused, lang-tagged heading.
-   Page speech happens only on "Hear it again", and only with an on-device voice. */
+   The mic is opened inside each Start tap and closed right after, so iOS returns to normal
+   speaker playback (an open mic puts it in the quiet "phone call" route). */
 
-const APP_VERSION = '1.1.0-web';
+const APP_VERSION = '1.2.0-web';
 const PRE_TONE_MS = 400;         // after cancelling speech, before the start tone
 const POST_TONE_GAP_MS = 150;    // start tone fully ended before the mic opens
+const MAX_MS = 20000;            // safety cap: auto-stop
+const TAIL_TRIM_MS = 350;        // drop the stop tap (screen-reader double-tap click)
+const MIN_MS = 600;              // shorter than this after trimming = "too short"
+const STALL_MS = 1500;           // no audio for this long while recording = interrupted
 const QUIET_PEAK = 0.02;         // below this the clip is treated as near-empty
 const CLIP_LEVEL = 0.999, CLIP_COUNT = 20;
 const PER_LANGUAGE = 17;
@@ -145,13 +161,15 @@ const OOS = {
   ar: ['كم الساعة الآن', 'اتصل بأخي من فضلك', 'شغل بعض الموسيقى',
        'الجو جميل اليوم', 'كم سعر هذا', 'ارفع الصوت من فضلك'],
 };
-// Copied from app/stt_recorder/lib/recorder/survey_instructions.dart.
+// From app/stt_recorder/lib/recorder/survey_instructions.dart, adapted to tap-to-stop (silence/mumble
+// end with "press again to stop"; the others are followed on screen by the stop hint).
 const PREFIX = {
-  ar: { silence: 'بعد الصفارة ابقَ صامتًا حتى الصفارة الثانية.', mumble: 'بعد الصفارة تمتم بلا كلمات حتى الصفارة الثانية.',
+  ar: { silence: 'بعد الصفارة ابقَ صامتًا نحو ثانيتين، ثم اضغط الزر مرة أخرى للإيقاف.',
+        mumble: 'بعد الصفارة تمتم بلا كلمات نحو ثانيتين، ثم اضغط الزر مرة أخرى للإيقاف.',
         partial_name: 'بعد الصفارة قل فقط بداية الاسم، ثم توقف:', out_of_set: 'بعد الصفارة قل هذه الجملة:',
         embedded_in_sentence: 'بعد الصفارة قل الجملة كاملة:', clean: 'بعد الصفارة قل:' },
-  en: { silence: 'After the tone, stay silent until the second tone.',
-        mumble: 'After the tone, mumble with no real words until the second tone.',
+  en: { silence: 'After the tone, stay silent for about two seconds, then press the button again to stop.',
+        mumble: 'After the tone, mumble with no real words for about two seconds, then press the button again to stop.',
         partial_name: 'After the tone, say only the start of the name, then stop:',
         out_of_set: 'After the tone, say this sentence:', embedded_in_sentence: 'After the tone, say the whole sentence:',
         clean: 'After the tone, say:' },
@@ -160,10 +178,10 @@ const PREFIX = {
 // UI strings: [English, Arabic].
 const S = {
   welcome_title: ['PaldiBlind Voice Survey', 'استبيان الصوت - بالدي بلايند'],
-  welcome_body: ['You will record yourself saying 12 place names and a few short phrases. It takes about 10 minutes: Arabic first, then English if you want. The recordings go only to the PaldiBlind research team. You can stop at any time. Please sit in a quiet room and turn on Do Not Disturb. Each recording starts after a tone and ends with a second tone; you do not need to touch the screen while it records.',
-                 'ستسجّل صوتك وأنت تقول أسماء ١٢ مكانًا وبعض العبارات القصيرة. يستغرق ذلك نحو عشر دقائق: العربية أولًا، ثم الإنجليزية إن أردت. تذهب التسجيلات إلى فريق بحث بالدي بلايند فقط. يمكنك التوقف في أي وقت. اجلس في غرفة هادئة وفعّل وضع عدم الإزعاج. يبدأ كل تسجيل بعد صفارة وينتهي بصفارة ثانية، ولا تحتاج إلى لمس الشاشة أثناء التسجيل.'],
-  welcome_mic: ['Nothing is recorded before you press the button below. The browser will then ask to use the microphone: choose Allow.',
-                'لا يُسجَّل أي شيء قبل الضغط على الزر أدناه. بعدها سيطلب المتصفح استخدام الميكروفون: اختر سماح.'],
+  welcome_body: ['You will record yourself saying 12 place names and a few short phrases. It takes about 10 minutes: one practice, then Arabic, then English if you want. The recordings go only to the PaldiBlind research team. You can stop at any time. Please sit in a quiet room and turn on Do Not Disturb. Press the record button, wait for the tone, speak, then press the same button again to stop. There is no time limit.',
+                 'ستسجّل صوتك وأنت تقول أسماء ١٢ مكانًا وبعض العبارات القصيرة. يستغرق ذلك نحو عشر دقائق: تجربة واحدة، ثم العربية، ثم الإنجليزية إن أردت. تذهب التسجيلات إلى فريق بحث بالدي بلايند فقط. يمكنك التوقف في أي وقت. اجلس في غرفة هادئة وفعّل وضع عدم الإزعاج. اضغط زر التسجيل، وانتظر الصفارة، ثم تكلّم، ثم اضغط الزر نفسه مرة أخرى للإيقاف. لا يوجد وقت محدد.'],
+  welcome_mic: ['Nothing is recorded before you press the button below. The browser will then ask to use the microphone: choose Allow. It may ask again later.',
+                'لا يُسجَّل أي شيء قبل الضغط على الزر أدناه. بعدها سيطلب المتصفح استخدام الميكروفون: اختر سماح. قد يطلبه مرة أخرى لاحقًا.'],
   consent_btn: ['I agree, start', 'أوافق وأبدأ'],
   storage_unusable: ['This browser cannot save the recordings on this phone, so the survey cannot start. Open the link in normal Safari (not Private Browsing), then press Try again.',
                      'لا يستطيع هذا المتصفح حفظ التسجيلات على هذا الهاتف، لذلك لا يمكن البدء. افتح الرابط في سفاري العادي، وليس في التصفح الخاص، ثم اضغط حاول مرة أخرى.'],
@@ -184,13 +202,21 @@ const S = {
   vision_light: ['I see light only', 'أرى الضوء فقط'],
   vision_low: ['Low vision', 'ضعف بصر'],
   of: ['of', 'من'],
-  start_btn: ['Start recording', 'ابدأ التسجيل'],
+  start_btn: ['Record — press to start, then press again to stop', 'تسجيل — اضغط للبدء ثم اضغط مرة أخرى للإيقاف'],
+  stop_hint: ['Then press the button again to stop.', 'ثم اضغط الزر مرة أخرى للإيقاف.'],
   hear_btn: ['Hear it again', 'اسمع مرة أخرى'],
   partial_btn: ['Send what I have so far', 'أرسل ما سجّلته حتى الآن'],
-  recording: ['Recording…', 'جارٍ التسجيل…'],
+  recording: ['Recording… press to stop', 'جارٍ التسجيل… اضغط للإيقاف'],
+  practice_title: ['Practice: after the tone say: Hello, then press to stop.', 'تجربة: بعد الصفارة قل: مرحبًا، ثم اضغط للإيقاف.'],
+  practice_word: ['Hello', 'مرحبًا'],
+  practice_review: ['Done. You will now hear your recording.', 'تم. ستسمع تسجيلك الآن.'],
+  practice_again: ['Try again', 'حاول مرة أخرى'],
+  practice_go: ['Start', 'ابدأ'],
   no_voice: ['No voice for this language is installed on the phone. The screen reader reads the text on screen.',
              'لا يوجد صوت مثبّت على الهاتف لهذه اللغة. قارئ الشاشة يقرأ النص المكتوب.'],
   done_hint: ['Done. Press Next, or Record again.', 'تم. اضغط التالي، أو أعد التسجيل.'],
+  cap_hint: ['The recording stopped by itself after 20 seconds. Press Next, or Record again.',
+             'توقف التسجيل تلقائيًا بعد ٢٠ ثانية. اضغط التالي، أو أعد التسجيل.'],
   quiet_hint: ['The recording is very quiet or empty. You can record again, or press Next.',
                'التسجيل هادئ جدًا أو فارغ. يمكنك إعادة التسجيل أو الضغط على التالي.'],
   clip_hint: ['The sound is too loud and distorted. Hold the phone a little further away. You can record again, or press Next.',
@@ -198,6 +224,7 @@ const S = {
   save_fail_hint: ['This recording could not be saved on the phone. Press Next to try again, or send what you have so far.',
                    'تعذّر حفظ هذا التسجيل على الهاتف. اضغط التالي للمحاولة مرة أخرى، أو أرسل ما سجّلته حتى الآن.'],
   capture_fail: ['The recording was interrupted and was not kept.', 'انقطع التسجيل ولم يُحفظ.'],
+  too_short: ['Too short, record again.', 'التسجيل قصير جدًا، سجّل مرة أخرى.'],
   next: ['Next', 'التالي'],
   again: ['Record again', 'أعد التسجيل'],
   listen: ['Listen', 'استمع'],
@@ -227,17 +254,18 @@ const S = {
 
 // ---------- state ----------
 let ui = 'ar';
-let st = null;          // persisted: {pid, seed, ui, consent, consentAt, vision, continueEnglish, persisted, noticeShown, createdAt}
+let st = null;          // persisted: {pid, seed, ui, consent, consentAt, vision, practiceDone, continueEnglish, persisted, noticeShown, createdAt}
 let plan = null;        // {ar: [...17], en: [...17]}
 let clips = [];         // saved clip metadata (no audio): {clip_id, seq, base_prompt_id, lang, meta}
-let cur = null;         // {prompt, index}
+let cur = null;         // {prompt, index, practice}
 let pending = null;     // capture waiting for Next / Record again (kept in memory if saving fails)
+let practicePcm = null; // practice recording: played back, never saved or exported
 let busy = false;       // set synchronously by every handler that awaits
-let gen = 0;            // navigation generation; stale focus callbacks check it
+let gen = 0;            // navigation generation; stale focus/playback callbacks check it
 let storageBlocked = false;
 const Z = { gen: 0, state: 'idle', ready: null, partial: false };   // send-screen zip
 const A = { ctx: null, stream: null, src: null, node: null, sink: null, mode: null, trackRate: null,
-            onCap: null, capN: 0, abort: null, op: null, speechUnlocked: false, player: null };
+            onCap: null, capN: 0, capId: 0, abort: null, rec: null, op: null, speechUnlocked: false, player: null };
 
 const $ = (id) => document.getElementById(id);
 const t = (k) => (ui === 'ar' ? S[k][1] : S[k][0]);
@@ -273,11 +301,6 @@ function buildBlock(lang, seed) {
   const carrier = lang === 'ar' ? `خذني إلى ${nm(embedded)}` : `can you take me to the ${nm(embedded)}`;
   out.push({ promptId: `${lang}_embed_${embedded.id}`, lang, condition: 'embedded_in_sentence', utterance: carrier, expected: embedded.id, target: embedded.id });
   return out;
-}
-function windowMs(condition) {
-  if (condition === 'silence' || condition === 'mumble') return 3000;
-  if (condition === 'out_of_set' || condition === 'embedded_in_sentence') return 6000;
-  return 4000;
 }
 function slug(p) {
   const base = p.target && p.condition !== 'clean' ? `${p.condition}_${p.target}` : (p.condition === 'clean' ? p.expected : p.condition);
@@ -348,19 +371,24 @@ async function waitSpeechIdle(maxMs) {
 }
 
 // ---------- audio ----------
+// Capture node: records up to `n` samples of capture `id`; 'stop' ends it early. Every message carries the id,
+// so a late reply from an earlier capture can never land in the current one.
 const WORKLET = `
 class PbCapture extends AudioWorkletProcessor {
   constructor() {
-    super(); this.n = 0;
-    this.port.onmessage = (e) => { if (e.data.cmd === 'start') this.n = e.data.n; else this.n = 0; };
+    super(); this.n = 0; this.id = 0;
+    this.port.onmessage = (e) => {
+      if (e.data.cmd === 'start') { this.n = e.data.n; this.id = e.data.id; }
+      else if (e.data.id === this.id) { this.n = 0; this.port.postMessage({ id: this.id, k: 'stopped' }); }
+    };
   }
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
     if (this.n > 0 && ch) {
       const take = Math.min(ch.length, this.n);
-      this.port.postMessage(ch.slice(0, take));
+      this.port.postMessage({ id: this.id, k: 'c', d: ch.slice(0, take) });
       this.n -= take;
-      if (this.n <= 0) this.port.postMessage('done');
+      if (this.n <= 0) this.port.postMessage({ id: this.id, k: 'done' });
     }
     return true;
   }
@@ -372,10 +400,12 @@ function interrupt() {
   if (A.op) A.op.cancelled = true;
   if (A.abort) A.abort();
 }
+function setSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) { /* ignore */ } }
 // Must run synchronously inside a tap: iOS only unlocks audio and speech from a user gesture.
 function gestureUnlock() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!A.ctx && AC) {
+    setSession('playback');
     A.ctx = new AC();
     A.ctx.onstatechange = () => { if (A.ctx.state !== 'running' && A.op && A.op.armed) interrupt(); };
   }
@@ -395,61 +425,90 @@ async function ensureNode() {
       const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
       await ctx.audioWorklet.addModule(url);
       A.node = new AudioWorkletNode(ctx, 'pb-capture', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1, channelCountMode: 'explicit' });
-      A.node.port.onmessage = (e) => { if (A.onCap) A.onCap(e.data); };
+      A.node.port.onmessage = (e) => { if (A.onCap && e.data.id === A.capId) A.onCap(e.data); };
       A.mode = 'audioworklet';
     } catch (e) { A.node = null; }
   }
   if (!A.node) {
     const sp = ctx.createScriptProcessor(4096, 1, 1);
     sp.onaudioprocess = (e) => {
-      if (A.capN <= 0) return;
+      if (A.capN <= 0 || !A.onCap) return;
       const ch = e.inputBuffer.getChannelData(0);
       const take = Math.min(ch.length, A.capN);
       A.capN -= take;
-      if (A.onCap) A.onCap(ch.slice(0, take));
-      if (A.capN <= 0 && A.onCap) A.onCap('done');
+      A.onCap({ k: 'c', d: ch.slice(0, take) });
+      if (A.capN <= 0 && A.onCap) A.onCap({ k: 'done' });
     };
     A.node = sp; A.mode = 'scriptprocessor';
   }
   A.node.connect(A.sink);
 }
-async function ensureMic() {
+// Close the mic completely so iOS leaves the play-and-record (earpiece/quiet) route.
+function releaseMic() {
+  if (A.src) { try { A.src.disconnect(); } catch (e) { /* ignore */ } A.src = null; }
+  if (A.stream) {
+    for (const tr of A.stream.getTracks()) {
+      tr.removeEventListener('ended', interrupt); tr.removeEventListener('mute', interrupt);
+      try { tr.stop(); } catch (e) { /* ignore */ }
+    }
+    A.stream = null;
+  }
+  setSession('playback');
+}
+// Opened inside each Start tap (Safari may ask for permission again).
+async function openMic() {
   if (!A.ctx) throw new Error('no-audiocontext');
-  if (micAlive()) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no-getusermedia');
-  if (A.stream) { for (const tr of A.stream.getTracks()) { try { tr.stop(); } catch (e) { /* ignore */ } } }
-  A.stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
-  });
+  releaseMic();
+  setSession('play-and-record');
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+    });
+  } catch (e) { setSession('playback'); throw e; }
+  A.stream = stream;
   await ensureNode();
-  if (A.src) { try { A.src.disconnect(); } catch (e) { /* ignore */ } }
-  A.src = A.ctx.createMediaStreamSource(A.stream);
+  A.src = A.ctx.createMediaStreamSource(stream);
   A.src.connect(A.node);
-  const tr = A.stream.getAudioTracks()[0];
+  const tr = stream.getAudioTracks()[0];
   if (tr) { tr.addEventListener('ended', interrupt); tr.addEventListener('mute', interrupt); }
   const set = tr && tr.getSettings ? tr.getSettings() : {};
   A.trackRate = set.sampleRate || null;
 }
-// Capture exactly `ms` of input, counted in samples by the capture node. ok is false unless every sample arrived.
-function capture(ms) {
+// Records until A.rec.stop() (the second tap), or MAX_MS. ok only if the audio kept flowing the whole time.
+function capture(maxMs) {
   return new Promise((resolve) => {
-    const sr = A.ctx.sampleRate, n = Math.round((ms * sr) / 1000);
-    const chunks = [];
-    let got = 0, fin = false, timer = 0;
+    const sr = A.ctx.sampleRate, n = Math.round((maxMs * sr) / 1000), id = ++A.capId;
+    const chunks = [], t0 = Date.now();
+    let got = 0, fin = false, stopReason = null, stopAt = 0, last = Date.now();
     const finish = (reason) => {
       if (fin) return;
-      fin = true; clearTimeout(timer);
-      A.onCap = null; A.abort = null; A.capN = 0;
-      if (A.mode === 'audioworklet') A.node.port.postMessage({ cmd: 'stop' });
-      const ok = reason === 'done' && got >= n;
-      const x = new Float32Array(ok ? n : 0);
-      if (ok) { let o = 0; for (const c of chunks) { const take = Math.min(c.length, n - o); x.set(c.subarray(0, take), o); o += take; if (o >= n) break; } }
+      fin = true; clearInterval(stall);
+      A.onCap = null; A.abort = null; A.rec = null; A.capN = 0;
+      if (A.mode === 'audioworklet' && reason !== 'tap') A.node.port.postMessage({ cmd: 'stop', id });
+      const expected = Math.min(n, (((stopAt || Date.now()) - t0) / 1000) * sr - 0.3 * sr);
+      const ok = (reason === 'tap' || reason === 'max') && got >= expected;
+      const len = ok ? Math.min(got, n) : 0, x = new Float32Array(len);
+      let o = 0;
+      for (const c of chunks) { if (o >= len) break; const take = Math.min(c.length, len - o); x.set(c.subarray(0, take), o); o += take; }
       resolve({ x, sr, ok, reason });
     };
-    A.onCap = (d) => { if (d === 'done') finish('done'); else { chunks.push(d); got += d.length; } };
+    A.onCap = (m) => {
+      if (m.k === 'c') { chunks.push(m.d); got += m.d.length; last = Date.now(); }
+      else if (m.k === 'done') finish(stopReason || 'max');
+      else if (m.k === 'stopped' && stopReason) finish(stopReason);   // every chunk before it has arrived
+    };
     A.abort = () => finish('interrupted');
-    timer = setTimeout(() => finish('watchdog'), ms + 2500);
-    if (A.mode === 'audioworklet') A.node.port.postMessage({ cmd: 'start', n }); else A.capN = n;
+    A.rec = { stop: () => {
+      if (fin || stopReason) return;
+      stopReason = 'tap'; stopAt = Date.now();
+      if (A.mode === 'audioworklet') A.node.port.postMessage({ cmd: 'stop', id }); else finish('tap');
+    } };
+    const stall = setInterval(() => {
+      if (Date.now() - last > STALL_MS || Date.now() - t0 > maxMs + 2500) finish('watchdog');
+    }, 250);
+    if (A.mode === 'audioworklet') A.node.port.postMessage({ cmd: 'start', n, id }); else A.capN = n;
   });
 }
 function tone(freq, ms) {
@@ -503,6 +562,18 @@ function wavBytes(pcm) {
   return new Uint8Array(buf);
 }
 function stopPlayback() { if (A.player) { try { A.player.stop(); } catch (e) { /* ignore */ } A.player = null; } }
+function playPcm(pcm) {
+  stopPlayback();
+  if (!A.ctx || !pcm) return;
+  setSession('playback');
+  if (A.ctx.state !== 'running') A.ctx.resume().catch(() => {});
+  const buf = A.ctx.createBuffer(1, Math.max(1, pcm.length), 16000);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = A.ctx.createBufferSource();
+  src.buffer = buf; src.connect(A.ctx.destination); src.start();
+  A.player = src;
+}
 
 // ---------- zip (STORE only, no compression) ----------
 const CRC_TABLE = (() => {
@@ -565,45 +636,64 @@ function show(id) {
   window.scrollTo(0, 0);
   const h = $(id).querySelector('h1');
   requestAnimationFrame(() => { if (g === gen) h.focus(); });
+  return g;
 }
 const keptIds = () => new Set(clips.map((c) => c.base_prompt_id));
 function nextIndex(lang) { const k = keptIds(); const i = plan[lang].findIndex((p) => !k.has(p.promptId)); return i < 0 ? PER_LANGUAGE : i; }
-function needsMic() { return route(true) === 'prompt'; }
 
-// Pure resume logic, same as SurveyResumeState.resolve.
-function route(dryRun) {
+// Resume logic, same as SurveyResumeState.resolve, plus the practice prompt before any clip exists.
+function route() {
   let stage, lang = 'ar', idx = 0;
   if (!st.consent) stage = 'welcome';
   else if (!st.vision) stage = 'vision';
+  else if (!st.practiceDone && !clips.length) stage = 'practice';
   else if ((idx = nextIndex('ar')) < PER_LANGUAGE) stage = 'prompt';
   else if (st.continueEnglish == null) stage = 'break';
   else if (st.continueEnglish === false) stage = 'finish';
   else if ((idx = nextIndex('en')) < PER_LANGUAGE) { stage = 'prompt'; lang = 'en'; }
   else stage = 'finish';
-  if (dryRun) return stage;
   if (stage === 'welcome') show('s-welcome');
   else if (stage === 'vision') show('s-vision');
+  else if (stage === 'practice') showPractice();
   else if (stage === 'prompt') showPrompt(lang, idx);
   else if (stage === 'break') show('s-break');
   else showSend(false);
   return stage;
 }
+function resetRecordVisual() { $('rec').hidden = true; $('b-start').classList.remove('recording'); }
 function showPrompt(lang, idx, errKey) {
   const p = plan[lang][idx];
-  cur = { prompt: p, index: idx };
+  cur = { prompt: p, index: idx, practice: false };
   pending = null;
   const lead = errKey ? `${t(errKey)} ` : '';
   setText($('p-title'), `${lead}${idx + 1} ${t('of')} ${PER_LANGUAGE}. ${PREFIX[ui][p.condition]}`);
   $('p-title').className = errKey ? 'warn' : '';
-  const say = $('p-say');
-  setText(say, p.utterance, p.lang);
-  say.hidden = !p.utterance;
-  $('rec').hidden = true;
+  setText($('p-say'), p.utterance, p.lang);
+  $('p-say').hidden = !p.utterance;
+  $('p-stop').hidden = !p.utterance;
+  $('b-partial-p').hidden = false;
+  resetRecordVisual();
   show('s-prompt');
+}
+function showPractice(errKey) {
+  cur = { prompt: { condition: 'practice', utterance: t('practice_word'), lang: ui }, index: 0, practice: true };
+  practicePcm = null;
+  setText($('p-title'), `${errKey ? `${t(errKey)} ` : ''}${t('practice_title')}`);
+  $('p-title').className = errKey ? 'warn' : '';
+  setText($('p-say'), t('practice_word'));
+  $('p-say').hidden = false;
+  $('p-stop').hidden = true;
+  $('b-partial-p').hidden = true;
+  resetRecordVisual();
+  show('s-prompt');
+}
+function showPracticeReview() {
+  const g = show('s-practice');
+  setTimeout(() => { if (g === gen) playPcm(practicePcm); }, 700);   // after the heading is read
 }
 function showReview(forceKey) {
   const r = pending;
-  const key = forceKey || (r.quiet ? 'quiet_hint' : r.clipped ? 'clip_hint' : 'done_hint');
+  const key = forceKey || (r.stopReason === 'max' ? 'cap_hint' : r.quiet ? 'quiet_hint' : r.clipped ? 'clip_hint' : 'done_hint');
   setText($('r-title'), t(key));
   $('r-title').className = key === 'done_hint' ? '' : 'warn';
   show('s-review');
@@ -651,7 +741,9 @@ async function onConsent() {
   try {
     st.consent = true; st.consentAt = new Date().toISOString(); st.ui = ui;
     if (!(await saveState())) { showStorage('storage_unusable'); return; }
-    try { await ensureMic(); } catch (e) { showMic(e); return; }
+    // Ask for the microphone now (a tap), then close it again until the first Start.
+    try { await openMic(); } catch (e) { releaseMic(); showMic(e); return; }
+    releaseMic();
     let persisted = false;
     try { persisted = !!(navigator.storage && navigator.storage.persist && (await navigator.storage.persist())); } catch (e) { persisted = false; }
     st.persisted = persisted;
@@ -660,14 +752,10 @@ async function onConsent() {
     route();
   } finally { busy = false; }
 }
-async function onContinue() {
+function onContinue() {
   if (busy) return;
-  busy = true;
   gestureUnlock();
-  try {
-    if (needsMic()) { try { await ensureMic(); } catch (e) { showMic(e); return; } }
-    route();
-  } finally { busy = false; }
+  route();
 }
 async function onVision(value) {
   if (busy) return;
@@ -677,13 +765,7 @@ async function onVision(value) {
 async function onLanguageBreak(yes) {
   if (busy) return;
   busy = true;
-  gestureUnlock();
-  try {
-    st.continueEnglish = yes;
-    await saveState();
-    if (yes && needsMic()) { try { await ensureMic(); } catch (e) { showMic(e); return; } }
-    route();
-  } finally { busy = false; }
+  try { st.continueEnglish = yes; await saveState(); route(); } finally { busy = false; }
 }
 async function onLangToggle() {
   if (busy) return;
@@ -694,46 +776,60 @@ function onHear() {
   if (busy || !cur) return;
   cancelSpeech();
   const p = cur.prompt;
-  if (!speakNow([[PREFIX[ui][p.condition], ui], [p.utterance, p.lang]])) status(t('no_voice'));
+  const parts = cur.practice ? [[t('practice_title'), ui]]
+    : [[PREFIX[ui][p.condition], ui], [p.utterance, p.lang], [p.utterance ? t('stop_hint') : '', ui]];
+  if (!speakNow(parts)) status(t('no_voice'));
 }
+// First tap: start. Second tap on the same button (label unchanged): stop.
 async function onStart() {
+  if (A.rec) { A.rec.stop(); return; }
   if (busy || !cur) return;
   busy = true;
-  ++gen;                                   // stale focus callbacks can no longer fire
+  ++gen;                                   // stale focus/playback callbacks can no longer fire
   const op = { cancelled: false, armed: false };
   A.op = op;                               // pagehide / visibilitychange / track / context cancel this
   gestureUnlock();
-  const p = cur.prompt, idx = cur.index;
-  const fail = () => { $('rec').hidden = true; showPrompt(p.lang, idx, 'capture_fail'); };
+  const c = cur, p = c.prompt;
+  const back = (key) => {
+    resetRecordVisual();
+    releaseMic();
+    if (c.practice) showPractice(key); else showPrompt(p.lang, c.index, key);
+  };
   try {
     cancelSpeech(); stopPlayback();
-    try { await ensureMic(); } catch (e) { if (op.cancelled) fail(); else showMic(e); return; }
-    if (op.cancelled) return fail();
+    try { await openMic(); } catch (e) { releaseMic(); if (op.cancelled) back('capture_fail'); else showMic(e); return; }
+    if (op.cancelled) return back('capture_fail');
     if (A.ctx.state !== 'running') await A.ctx.resume().catch(() => {});
-    if (op.cancelled || A.ctx.state !== 'running' || !micAlive()) return fail();
+    if (op.cancelled || A.ctx.state !== 'running' || !micAlive()) return back('capture_fail');
     op.armed = true;
     await sleep(PRE_TONE_MS);
-    if (op.cancelled) return fail();
+    if (op.cancelled) return back('capture_fail');
     await waitSpeechIdle(2000);
-    if (op.cancelled) return fail();
-    $('rec').hidden = false;               // visual only: an announcement would be recorded
+    if (op.cancelled) return back('capture_fail');
+    // Visual only (aria-hidden + colour); no announcement while the mic is open.
+    $('rec').hidden = false; $('b-start').classList.add('recording');
     await tone(880, 150);
-    if (op.cancelled) return fail();
+    if (op.cancelled) return back('capture_fail');
     await sleep(POST_TONE_GAP_MS);
-    if (op.cancelled) return fail();
-    const ms = windowMs(p.condition);
-    const r = await capture(ms);
-    if (!r.ok || op.cancelled || !micAlive()) return fail();
+    if (op.cancelled) return back('capture_fail');
+    const r = await capture(MAX_MS);
+    const alive = micAlive();
+    op.armed = false;
+    releaseMic();                          // back to normal speaker playback before the stop tone
+    resetRecordVisual();
+    if (!r.ok || op.cancelled || !alive) return back('capture_fail');
     await tone(440, 200);
-    $('rec').hidden = true;
+    const x = r.x.subarray(0, Math.max(0, r.x.length - Math.round((TAIL_TRIM_MS / 1000) * r.sr)));
+    if (x.length < (MIN_MS / 1000) * r.sr) return back('too_short');
+    if (c.practice) { practicePcm = resample16k(x, r.sr); showPracticeReview(); return; }
     let peak = 0, clippedCount = 0;
-    for (let i = 0; i < r.x.length; i++) { const a = Math.abs(r.x[i]); if (a > peak) peak = a; if (a >= CLIP_LEVEL) clippedCount++; }
+    for (let i = 0; i < x.length; i++) { const a = Math.abs(x[i]); if (a > peak) peak = a; if (a >= CLIP_LEVEL) clippedCount++; }
     const noWords = p.condition === 'silence' || p.condition === 'mumble';
-    pending = { prompt: p, index: idx, pcm: resample16k(r.x, r.sr), sr: r.sr, ms, peak, clippedCount,
+    pending = { prompt: p, index: c.index, pcm: resample16k(x, r.sr), sr: r.sr, stopReason: r.reason, peak, clippedCount,
                 quiet: !noWords && peak < QUIET_PEAK, clipped: !noWords && clippedCount >= CLIP_COUNT };
     showReview();
   } catch (e) {
-    fail();
+    back('capture_fail');
   } finally {
     if (A.op === op) A.op = null;
     busy = false;
@@ -750,9 +846,10 @@ function makeRecord(r, seq) {
     recorded_at: new Date().toISOString(), conditions_source: 'self-guided web survey; room and mic distance not recorded',
     operator: 'web', speaker: st.pid, participant_group: 'blind', consent_recorded: true,
     vision_level: st.vision, vision_onset: null,
-    self_guided: true, recording_mode: 'fixed_window', window_ms: r.ms, platform: 'web', user_agent: navigator.userAgent,
+    self_guided: true, recording_mode: 'tap_to_stop', window_ms: null, max_ms: MAX_MS, tail_trim_ms: TAIL_TRIM_MS,
+    stop_reason: r.stopReason, platform: 'web', user_agent: navigator.userAgent,
     group: 'blind', actual_sample_rate: r.sr, track_sample_rate: A.trackRate, capture_node: A.mode,
-    resample_method: RESAMPLE_METHOD, levels_measured_at: 'input rate, before resampling',
+    resample_method: RESAMPLE_METHOD, levels_measured_at: 'input rate, after the tail trim, before resampling',
     level_warning: r.quiet ? 'near_empty' : r.clipped ? 'clipped' : null,
     prompt_seed: st.seed, prompt_index: r.index, ui_language: ui,
   };
@@ -775,21 +872,15 @@ function onAgain() {
   stopPlayback();
   showPrompt(r.prompt.lang, r.index);
 }
-function onListen() {
-  if (busy || !pending) return;
-  stopPlayback();
-  const pcm = pending.pcm;
-  const buf = A.ctx.createBuffer(1, Math.max(1, pcm.length), 16000);
-  const ch = buf.getChannelData(0);
-  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
-  const src = A.ctx.createBufferSource();
-  src.buffer = buf; src.connect(A.ctx.destination); src.start();
-  A.player = src;
-}
-function onPartial() {
+function onListen() { if (!busy && pending) playPcm(pending.pcm); }
+function onPracticeListen() { if (!busy && practicePcm) playPcm(practicePcm); }
+function onPracticeAgain() { if (!busy) { stopPlayback(); showPractice(); } }
+async function onPracticeGo() {
   if (busy) return;
-  showSend(true);
+  busy = true;
+  try { stopPlayback(); practicePcm = null; st.practiceDone = true; await saveState(); route(); } finally { busy = false; }
 }
+function onPartial() { if (!busy) showSend(true); }
 function onBack() {
   if (busy) return;
   if (pending) showReview(); else route();
@@ -807,12 +898,13 @@ async function prepareZip(extra) {
     corpus_id: `paldiblind-survey-web-${st.pid}`,
     recorder: { tool: 'PaldiBlind Voice Survey (web)', format: '16 kHz mono PCM16 WAV, written by the page itself', written_at: now.toISOString() },
     survey: {
-      participant_id: st.pid, self_guided: true, recording_mode: 'fixed_window', platform: 'web', user_agent: navigator.userAgent,
+      participant_id: st.pid, self_guided: true, recording_mode: 'tap_to_stop', platform: 'web', user_agent: navigator.userAgent,
       group: 'blind', vision_level: st.vision, consent_at: st.consentAt || null, continue_english: st.continueEnglish,
       storage_persisted: st.persisted === true, partial_export: Z.partial, includes_unsaved_clip: !!extra,
       seed: st.seed, shuffle: SHUFFLE_METHOD,
       order: { ar: plan.ar.map((p) => p.promptId), en: plan.en.map((p) => p.promptId) },
-      window_ms: { clean: 4000, partial_name: 4000, out_of_set: 6000, embedded_in_sentence: 6000, silence: 3000, mumble: 3000 },
+      max_ms: MAX_MS, tail_trim_ms: TAIL_TRIM_MS, min_ms: MIN_MS, practice_prompt: 'not recorded in the corpus',
+      audio_session_api: !!navigator.audioSession, mic_opened_per_recording: true,
       actual_sample_rate: A.ctx ? A.ctx.sampleRate : null, track_sample_rate: A.trackRate, resample_method: RESAMPLE_METHOD,
     },
     clips: all.map((c) => c.meta),
@@ -871,6 +963,9 @@ $('b-hear').addEventListener('click', onHear);
 $('b-next').addEventListener('click', onNext);
 $('b-again').addEventListener('click', onAgain);
 $('b-listen').addEventListener('click', onListen);
+$('b-pr-listen').addEventListener('click', onPracticeListen);
+$('b-pr-again').addEventListener('click', onPracticeAgain);
+$('b-pr-go').addEventListener('click', onPracticeGo);
 for (const id of ['b-partial-p', 'b-partial-r', 'b-partial-s']) $(id).addEventListener('click', onPartial);
 $('b-back').addEventListener('click', onBack);
 $('b-yes').addEventListener('click', () => onLanguageBreak(true));
@@ -881,13 +976,13 @@ function newState() {
   const r = new Uint32Array(1);
   window.crypto.getRandomValues(r);
   const digits = String(r[0] % 1000000).padStart(6, '0');
-  return { pid: `W${digits}`, seed: parseInt(digits, 10), ui: 'ar', consent: false, vision: null,
+  return { pid: `W${digits}`, seed: parseInt(digits, 10), ui: 'ar', consent: false, vision: null, practiceDone: false,
            continueEnglish: null, createdAt: new Date().toISOString() };
 }
 // Saved clips but no state record: rebuild the identity from the clips, never invent a new one.
 function stateFromClips(list) {
   const m = list[0].meta;
-  return { pid: m.speaker, seed: m.prompt_seed, ui: m.ui_language || 'ar', consent: true, vision: m.vision_level,
+  return { pid: m.speaker, seed: m.prompt_seed, ui: m.ui_language || 'ar', consent: true, vision: m.vision_level, practiceDone: true,
            continueEnglish: list.some((c) => c.lang === 'en') ? true : null, createdAt: m.recorded_at, recovered: true };
 }
 async function boot() {
