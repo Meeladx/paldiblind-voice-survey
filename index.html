@@ -116,6 +116,7 @@
 
   <p id="status" class="status" role="status" aria-live="polite"></p>
 </main>
+<pre id="dbg" hidden style="white-space:pre-wrap;font-size:13px;color:#ddd;padding:8px" aria-hidden="true"></pre>
 
 <script>
 'use strict';
@@ -133,6 +134,18 @@ const MAX_MS = 20000;            // safety cap: auto-stop
 const TAIL_TRIM_MS = 350;        // drop the stop tap (screen-reader double-tap click)
 const MIN_MS = 600;              // shorter than this after trimming = "too short"
 const STALL_MS = 1500;           // no audio for this long while recording = interrupted
+// ?debug=1 shows a timestamped event log under the page (field diagnosis only; hidden from screen readers).
+const DEBUG = /[?&]debug=1/.test(location.search);
+const DBG_T0 = Date.now();
+function dbg(msg) {
+  if (!DEBUG) return;
+  const el = document.getElementById('dbg');
+  if (!el) return;
+  el.hidden = false;
+  el.textContent = `${((Date.now() - DBG_T0) / 1000).toFixed(2)} ${msg}\n` + el.textContent.slice(0, 4000);
+}
+window.addEventListener('error', (e) => dbg(`error ${e.message}`));
+window.addEventListener('unhandledrejection', (e) => dbg(`rejection ${e.reason && (e.reason.message || e.reason)}`));
 const QUIET_PEAK = 0.02;         // below this the clip is treated as near-empty
 const CLIP_LEVEL = 0.999, CLIP_COUNT = 20;
 const PER_LANGUAGE = 17;
@@ -400,11 +413,12 @@ registerProcessor('pb-capture', PbCapture);
 // cancels the whole operation and frees the mic synchronously: the page may be frozen before any await resumes.
 function interrupt(reason) {
   const op = A.op;
+  dbg(`interrupt ${reason} op=${op ? op.kind : '-'} ctx=${A.ctx && A.ctx.state}`);
   if (op) { op.cancelled = true; op.reason = op.reason || (typeof reason === 'string' ? reason : 'interrupted'); }
   if (A.abort) A.abort();
   if (op) releaseMic();
 }
-const onTrackLost = () => interrupt('track');
+const onTrackLost = (e) => { dbg(`track ${e && e.type}`); interrupt('track'); };
 function stopTracks(stream) { for (const tr of stream.getTracks()) { try { tr.stop(); } catch (e) { /* ignore */ } } }
 function setSession(type) { try { if (navigator.audioSession) navigator.audioSession.type = type; } catch (e) { /* ignore */ } }
 // Must run synchronously inside a tap: iOS only unlocks audio and speech from a user gesture.
@@ -413,7 +427,7 @@ function gestureUnlock() {
   if (!A.ctx && AC) {
     setSession('playback');
     A.ctx = new AC();
-    A.ctx.onstatechange = () => { if (A.ctx.state !== 'running' && A.op && A.op.armed) interrupt('context'); };
+    A.ctx.onstatechange = () => { dbg(`ctx ${A.ctx.state} armed=${!!(A.op && A.op.armed)}`); if (A.ctx.state !== 'running' && A.op && A.op.armed) interrupt('context'); };
   }
   if (A.ctx && A.ctx.state !== 'running') A.ctx.resume().catch(() => {});
   if (window.speechSynthesis && !A.speechUnlocked) {
@@ -496,6 +510,7 @@ function capture(maxMs) {
       if (A.mode === 'audioworklet' && reason !== 'tap') A.node.port.postMessage({ cmd: 'stop', id });
       const expected = Math.min(n, (((stopAt || Date.now()) - t0) / 1000) * sr - 0.3 * sr);
       const ok = (reason === 'tap' || reason === 'max') && got >= expected;
+      dbg(`capture end ${reason} got=${got} expected=${Math.round(expected)} sr=${sr} mode=${A.mode} ok=${ok}`);
       const len = ok ? Math.min(got, n) : 0, x = new Float32Array(len);
       let o = 0;
       for (const c of chunks) { if (o >= len) break; const take = Math.min(c.length, len - o); x.set(c.subarray(0, take), o); o += take; }
@@ -820,6 +835,7 @@ async function onStart() {
   gestureUnlock();
   const c = cur, p = c.prompt;
   const back = (key) => {
+    dbg(`back ${key} cancelled=${op.cancelled} reason=${op.reason} ctx=${A.ctx && A.ctx.state} mic=${micAlive()}`);
     if (A.op === op) A.op = null;
     resetRecordVisual();
     releaseMic();
@@ -828,7 +844,7 @@ async function onStart() {
   };
   try {
     cancelSpeech(); stopPlayback();
-    try { await openMic(op); } catch (e) { releaseMic(); if (op.cancelled) back('capture_fail'); else { A.op = null; showMic(e); } return; }
+    try { await openMic(op); } catch (e) { dbg(`openMic failed ${e && (e.name + ' ' + e.message)}`); releaseMic(); if (op.cancelled) back('capture_fail'); else { A.op = null; showMic(e); } return; }
     if (op.cancelled) return back('capture_fail');
     if (A.ctx.state !== 'running') await A.ctx.resume().catch(() => {});
     if (op.cancelled || A.ctx.state !== 'running' || !micAlive()) return back('capture_fail');
@@ -843,8 +859,10 @@ async function onStart() {
     if (op.cancelled) return back('capture_fail');
     await sleep(POST_TONE_GAP_MS);
     if (op.cancelled) return back('capture_fail');
+    dbg(`capture start ctx=${A.ctx.state} sr=${A.ctx.sampleRate} track=${A.trackRate} mic=${micAlive()}`);
     const r = await capture(MAX_MS);
     const alive = micAlive();
+    dbg(`after capture ok=${r.ok} alive=${alive} tracks=${A.stream ? A.stream.getAudioTracks().map((x) => x.readyState + (x.muted ? '/muted' : '')).join(',') : 'none'}`);
     op.armed = false;
     if (r.ok && !op.cancelled && alive && A.op === op) A.op = null;   // done: later taps hit the busy guard
     releaseMic();                          // back to normal speaker playback before the stop tone
@@ -861,6 +879,7 @@ async function onStart() {
                 quiet: !noWords && peak < QUIET_PEAK, clipped: !noWords && clippedCount >= CLIP_COUNT };
     showReview();
   } catch (e) {
+    dbg(`onStart threw ${e && (e.message || e)}`);
     back('capture_fail');
   } finally {
     if (A.op === op) A.op = null;
